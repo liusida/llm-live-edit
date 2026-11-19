@@ -54,6 +54,38 @@ where sum mean std max min norm matmul outer normalize cos_sim project_out low_r
 flatten reshape zeros_like ones_like randn_like eye`. Expression edits are evaluated when applied,
 in order, so they see earlier edits in the same batch.
 
+## Editing from outside (third-party API)
+
+The running `web.py` server also exposes the weights to other programs, so someone else (a
+person, a script, another agent) can edit the model while you chat with it in the browser.
+Turn **Self-edit tools** off in the header (or start with `--plain`) to chat with a plain model:
+no system prompt, no tools, and it is not told about edits.
+
+```bash
+export SWM_URL=http://127.0.0.1:8000
+python edit.py next "The capital of France is" --target " Paris"      # next-token probabilities
+python edit.py transform model.embed_tokens.weight 11751 'x * -1' --note "flip the ' Paris' row"
+python edit.py edit model.layers.3.self_attn.q_proj.weight "0:256, :" 2 --mode scale
+python edit.py compute 'cos_sim(W("model.layers.4.mlp.up_proj.weight", "0"), W("model.layers.4.mlp.up_proj.weight", "1"), dim=0)'
+python edit.py generate "What is the capital of France?"              # one-off, not in the chat
+python edit.py reset
+```
+
+| Endpoint | Body | Does |
+|---|---|---|
+| `GET /api/state`, `/api/params?filter=`, `/api/describe?name=` | | model info, weight state, parameter list |
+| `POST /api/read` | `name, index` | raw values (≤ 65,536) |
+| `POST /api/compute` | `expression` | read-only matrix math |
+| `POST /api/edit` | `name, index, values, mode, apply=true, note` | set / add / scale |
+| `POST /api/transform` | `name, index, expression, apply=true, note` | region = expression of `x` |
+| `POST /api/apply`, `/api/discard`, `/api/reset` | | staged edits; restore originals |
+| `POST /api/generate` | `prompt, max_new_tokens, chat, think, system, temperature` | one-off generation |
+| `POST /api/next_token` | `prompt, top_k, chat, targets` | next-token top-k and target probabilities |
+| `POST /api/tools`, `/api/think` | `on` | self-edit mode, thinking mode |
+
+Calls are refused (409) while the model is generating. Every edit appears in the browser with
+a "via API" divider. The API has no authentication: keep the default `--host 127.0.0.1`.
+
 ## Web UI
 
 - Streaming conversation with tool calls shown as cards; a divider marks every weight change.

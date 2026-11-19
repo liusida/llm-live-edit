@@ -215,7 +215,7 @@ class WeightStore:
         return e, preview
 
     @torch.no_grad()
-    def apply(self) -> list[dict]:
+    def apply(self, by: str = "model") -> list[dict]:
         """Commit all staged edits into the live tensors, in order. All-or-nothing:
         if any edit fails, the edits already done in this call are undone, nothing
         is applied, and the staged edits stay pending (fix with discard())."""
@@ -251,7 +251,7 @@ class WeightStore:
                         max_change = max(max_change, d.max().item())
                         del o, nw, d
                     del new_full
-                    reports.append({"name": e.name, "index": e.index, "mode": e.mode, "expr": e.expr,
+                    reports.append({"name": e.name, "index": e.index, "mode": e.mode, "expr": e.expr, "by": by,
                                     "n": region.numel(), "n_changed": n_changed, "max_abs_change": max_change,
                                     "stored_preview": _first_values(region, 16).float().cpu()})
                 except Exception as ex:

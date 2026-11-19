@@ -19,10 +19,11 @@ def main():
     ap.add_argument("--task", help="run one task non-interactively")
     ap.add_argument("--think", action="store_true", help="enable thinking mode")
     ap.add_argument("--max-steps", type=int, default=20, help="max tool-call turns per user message")
+    ap.add_argument("--max-new-tokens", type=int, default=32768, help="cap per reply, thinking included")
     args = ap.parse_args()
 
     model, tok = load(args.model)
-    agent = SelfEditAgent(model, tok, think=args.think)
+    agent = SelfEditAgent(model, tok, think=args.think, max_new_tokens=args.max_new_tokens)
     print(f"logging to {agent.log_path}")
 
     if args.task:

@@ -113,9 +113,13 @@ def parse_calls(text: str) -> list[tuple[str, dict]]:
 
 
 class SelfEditAgent:
-    def __init__(self, model, tok, think: bool = False, max_new_tokens: int = 1024,
-                 log_dir: str | Path = "runs", on_event=None):
-        self.model, self.tok, self.think = model, tok, think
+    def __init__(self, model, tok, think: bool = False, max_new_tokens: int = 32768,
+                 log_dir: str | Path = "runs", on_event=None, tools: bool = True):
+        self.model, self.tok, self.think = model, tok, think  # think: Qwen thinking mode, can change any time
+        # tools: self-edit mode (system prompt + weight tools + [environment] notes). Off = plain chat:
+        # no system prompt, no tools, so weight edits made from outside can be tested on normal behavior.
+        self.tools_enabled = tools
+        self._gen_think = think
         self.max_new_tokens = max_new_tokens
         self.store = WeightStore(model)
         name = getattr(model.config, "_name_or_path", "") or "Qwen3.5"
@@ -185,6 +189,8 @@ class SelfEditAgent:
     def note(self, text: str) -> None:
         """Tell the model something about its situation. Sent as a user-role message, because
         Qwen's chat template only allows a system message at the start."""
+        if not self.tools_enabled:  # plain chat: the model is not told about its weights
+            return
         msg = f"[environment] {text}"
         self.messages.append({"role": "user", "content": msg})
         self.log(role="environment", content=msg)
@@ -245,23 +251,72 @@ class SelfEditAgent:
         Qwen's template refuses a conversation with no user message, so one is added as a
         visible placeholder when needed (only for display; generation always has a real one)."""
         msgs = list(messages if messages is not None else self.messages)
+        if not self.tools_enabled:  # plain chat: drop the self-edit system prompt and the tools
+            msgs = [m for m in msgs if m["role"] != "system"]
         if not any(m["role"] == "user" for m in msgs):
             msgs.append({"role": "user", "content": self.PLACEHOLDER})
-        return self.tok.apply_chat_template(msgs, tools=TOOLS, tokenize=False,
+        return self.tok.apply_chat_template(msgs, tools=TOOLS if self.tools_enabled else None, tokenize=False,
                                             add_generation_prompt=generation_prompt, enable_thinking=self.think)
 
     def instructions(self) -> dict:
         """Everything the model is told before the conversation starts."""
+        if not self.tools_enabled:
+            return {"system_prompt": "", "tools": [], "mode": "plain",
+                    "preamble": "(plain chat mode: no system prompt and no tools; the model sees only the conversation)"}
         text = self.render(self.messages[:1], generation_prompt=False)
         end = text.index("<|im_end|>") + len("<|im_end|>")  # end of the system block
-        return {"system_prompt": self.messages[0]["content"], "preamble": text[:end], "tools": TOOLS}
+        return {"system_prompt": self.messages[0]["content"], "preamble": text[:end], "tools": TOOLS,
+                "mode": "self-edit"}
+
+    # ---- one-off probes (not part of the conversation) -------------------------------
+    def _chat_prompt(self, prompt: str, chat: bool, think: bool, system: str | None) -> str:
+        if not chat:
+            return prompt
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        return self.tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, enable_thinking=think)
+
+    @torch.no_grad()
+    def generate_once(self, prompt: str, max_new_tokens: int = 200, chat: bool = True, think: bool = False,
+                      system: str | None = None, temperature: float = 0.0) -> dict:
+        """Generate from a fresh prompt with the current weights. Greedy unless temperature > 0."""
+        text = self._chat_prompt(prompt, chat, think, system)
+        ids = self.tok(text, return_tensors="pt").to(self.model.device)
+        kw = {"do_sample": True, "temperature": temperature} if temperature > 0 else {"do_sample": False}
+        t0 = time.time()
+        out = self.model.generate(**ids, max_new_tokens=max_new_tokens, **kw)
+        new = out[0, ids.input_ids.shape[1]:]
+        return {"text": self.tok.decode(new, skip_special_tokens=True), "new_tokens": int(new.numel()),
+                "seconds": time.time() - t0}
+
+    @torch.no_grad()
+    def next_token(self, prompt: str, top_k: int = 10, chat: bool = False, think: bool = False,
+                   targets: list[str] | None = None) -> dict:
+        """Next-token distribution after the prompt: top-k tokens, plus the probability of the first
+        token of each target string (e.g. " Paris")."""
+        text = self._chat_prompt(prompt, chat, think, None)
+        ids = self.tok(text, return_tensors="pt").to(self.model.device)
+        logits = self.model(**ids, logits_to_keep=1).logits[0, -1].float()
+        probs = torch.softmax(logits, -1)
+        top = torch.topk(probs, top_k)
+        out = {"top": [{"token": self.tok.decode([i]), "id": int(i), "prob": float(p)}
+                       for p, i in zip(top.values.tolist(), top.indices.tolist())],
+               "entropy": float(-(probs * torch.log(probs.clamp_min(1e-12))).sum())}
+        if targets:
+            out["targets"] = []
+            for t in targets:
+                tid = self.tok.encode(t, add_special_tokens=False)
+                out["targets"].append({"target": t, "first_token": self.tok.decode(tid[:1]), "id": tid[0],
+                                       "prob": float(probs[tid[0]]),
+                                       "rank": int((probs > probs[tid[0]]).sum()) + 1})
+        return out
 
     @torch.no_grad()
     def generate(self) -> str:
+        self._gen_think = self.think  # the switch may flip mid-turn; parse this turn the way it was generated
         prompt = self.render()
         ids = self.tok(prompt, return_tensors="pt").to(self.model.device)
         n_prompt = ids.input_ids.shape[1]
-        self.emit({"type": "gen_start", "prompt_tokens": n_prompt})
+        self.emit({"type": "gen_start", "prompt_tokens": n_prompt, "think": self._gen_think})
         streamer = _TokenStreamer(self.tok, lambda text: self.emit({"type": "token", "text": text}))
         stop = _StopFlag(self.stop_event)
         t0 = time.time()
@@ -284,13 +339,13 @@ class SelfEditAgent:
             return False
         text = self.generate()
         interrupted = self.stop_event.is_set()
-        if self.think and "</think>" not in text:  # cut off while still thinking
+        if self._gen_think and "</think>" not in text:  # cut off while still thinking
             reasoning, after = text.replace("<think>", "").strip(), ""
         else:
             reasoning, _, after = text.rpartition("</think>")
             reasoning = reasoning.replace("<think>", "").strip()
         # An interrupted turn runs no tools, even a call that happened to be complete.
-        calls = [] if interrupted else parse_calls(after)
+        calls = [] if (interrupted or not self.tools_enabled) else parse_calls(after)
         # Complete calls are removed by CALL_RX; a half-written one (interrupted, or cut off by
         # max_new_tokens) is dropped from "<tool_call>" on.
         visible = CALL_RX.sub("", after).split("<tool_call>")[0]
