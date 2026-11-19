@@ -339,11 +339,17 @@ class SelfEditAgent:
             return False
         text = self.generate()
         interrupted = self.stop_event.is_set()
-        if self._gen_think and "</think>" not in text:  # cut off while still thinking
-            reasoning, after = text.replace("<think>", "").strip(), ""
+        if self._gen_think:
+            # Thinking mode: the prompt ends with "<think>\n", so the reply starts with reasoning and the
+            # FIRST "</think>" ends it. Any later "</think>" is the model writing the tag in its answer.
+            reasoning, sep, after = text.partition("</think>")
+            reasoning = reasoning.replace("<think>", "", 1).strip()
+            if not sep:  # cut off while still thinking
+                after = ""
         else:
-            reasoning, _, after = text.rpartition("</think>")
-            reasoning = reasoning.replace("<think>", "").strip()
+            # Thinking off: the template already closed an empty <think></think>, so nothing here is
+            # reasoning, even if the model writes "<think>" or "</think>" as text.
+            reasoning, after = "", text
         # An interrupted turn runs no tools, even a call that happened to be complete.
         calls = [] if (interrupted or not self.tools_enabled) else parse_calls(after)
         # Complete calls are removed by CALL_RX; a half-written one (interrupted, or cut off by
@@ -351,7 +357,9 @@ class SelfEditAgent:
         visible = CALL_RX.sub("", after).split("<tool_call>")[0]
         visible = visible.strip()
         content = visible + ("\n\n[interrupted by the user]" if interrupted else "")
-        msg = {"role": "assistant", "content": content}
+        # reasoning_content must be a string: otherwise Qwen's template re-splits content at "</think>"
+        # on every later turn and drops what came before. "" = earlier reasoning is not kept in history.
+        msg = {"role": "assistant", "content": content, "reasoning_content": ""}
         if calls:
             msg["tool_calls"] = [{"type": "function", "function": {"name": f, "arguments": a}} for f, a in calls]
         self.messages.append(msg)

@@ -328,7 +328,7 @@ function startLive(think = false) {
 function renderLive() {
   if (!live) return;
   const stick = atBottom();
-  let t = live.text.replace(/^<think>\n?/, "");
+  let t = live.think ? live.text.replace(/^<think>\n?/, "") : live.text;
   live.body.textContent = "";
   if (live.think && !t.includes("</think>")) {  // still thinking: everything so far is reasoning
     const d = live.body.appendChild(el("details", "think")); d.open = true;
@@ -338,11 +338,12 @@ function renderLive() {
     if (stick) tl.scrollTop = tl.scrollHeight;
     return;
   }
-  if (t.includes("</think>")) {
-    const [r, rest] = t.split("</think>");
+  const end = live.think ? t.indexOf("</think>") : -1;  // with thinking off, "</think>" is just text
+  if (end >= 0) {
+    const r = t.slice(0, end);
     if (r.trim()) { const d = live.body.appendChild(el("details", "think")); d.open = true;
       d.appendChild(el("summary", null, "Thinking")); d.appendChild(el("div", null, r.trim())); }
-    t = rest;
+    t = t.slice(end + "</think>".length);
   }
   const j = t.indexOf("<tool_call>");
   const body = live.body.appendChild(el("div", "md"));
