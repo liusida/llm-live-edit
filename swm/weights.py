@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 import torch
 
-from .expr import ExprError, evaluate
+from .expr import ExprError, evaluate, summarize
 
 MAX_READ = 512  # largest number of values one read may return (keeps agent context small)
 
@@ -56,6 +56,41 @@ def parse_values(values) -> torch.Tensor:
 
 def fmt(vals: torch.Tensor) -> str:
     return ", ".join(f"{v:.4g}" for v in vals.flatten().tolist())
+
+
+CHUNK_ELEMENTS = 1 << 24  # ~16M values (64 MB as float32) per chunk when applying edits
+
+
+def _row_chunks(t: torch.Tensor):
+    """Slices along dim 0 covering t in pieces of at most ~CHUNK_ELEMENTS values."""
+    if t.ndim == 0:
+        yield Ellipsis
+        return
+    per_row = max(1, t[0].numel()) if t.shape[0] else 1
+    step = max(1, CHUNK_ELEMENTS // per_row)
+    for i in range(0, t.shape[0], step):
+        yield slice(i, i + step)
+
+
+def _first_values(t: torch.Tensor, k: int) -> torch.Tensor:
+    """The first k values of t in row-major order, without copying all of t."""
+    if t.ndim <= 1:
+        return t.reshape(-1)[:k]
+    out, n = [], 0
+    for j in range(t.shape[0]):
+        row = _first_values(t[j], k - n)
+        out.append(row)
+        n += row.numel()
+        if n >= k:
+            break
+    return torch.cat(out)[:k]
+
+
+def release_memory() -> None:
+    """Give PyTorch's cached GPU memory back to the system. On GB10 GPU memory *is* system RAM,
+    so memory PyTorch keeps cached after a big edit is RAM nothing else can use."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 @dataclass
@@ -163,17 +198,20 @@ class WeightStore:
         return r
 
     @torch.no_grad()
-    def transform(self, name: str, index: str, expression: str) -> tuple[Edit, torch.Tensor]:
+    def transform(self, name: str, index: str, expression: str) -> tuple[Edit, str]:
         """Stage an edit computed from an expression, where x is the region's current value.
         It is checked (and previewed) now, but evaluated again when applied, in order, so it
-        sees the effect of edits applied before it in the same batch."""
+        sees the effect of edits applied before it in the same batch. Returns the staged edit
+        and a text summary (shape, statistics, first values) of the new values."""
         p = self._get(name)
         old = p.data[parse_index(index, p.ndim)].float()
         if old.numel() == 0:
             raise ValueError(f"index '{index}' selects no elements of {name} {tuple(p.shape)}")
-        preview = self._eval_for_region(expression, old)
+        preview = summarize(self._eval_for_region(expression, old), max_values=16)
         e = Edit(name, index, torch.tensor(0.0), "expr", old.numel(), expression)
         self.pending.append(e)
+        del old
+        release_memory()
         return e, preview
 
     @torch.no_grad()
@@ -190,24 +228,32 @@ class WeightStore:
                     if e.name not in self._backup:
                         self._backup[e.name] = p.data.detach().clone()
                         new_backups.append(e.name)
-                    old_raw = p.data[idx].clone()
+                    region = p.data[idx]          # a view: writing to it writes the parameter
+                    old_raw = region.clone()      # same dtype as the weights; used to undo
                     undo.append((p, idx, old_raw))
-                    old = old_raw.float()
-                    if e.mode == "expr":
-                        new = self._eval_for_region(e.expr, old)
-                    else:
-                        v = e.values.to(p.device)
-                        new = {"set": v.expand_as(old), "add": old + v, "scale": old * v}[e.mode]
-                    if not torch.isfinite(new).all():
-                        raise ValueError("result would contain inf/nan")
-                    p.data[idx] = new.to(p.dtype)
-                    stored = p.data[idx].float()
-                    diff = (stored - old).abs()
+                    # An expression may need the whole region at once (norm(x), low_rank(x), ...),
+                    # so it is evaluated in full; everything else is done in row chunks below.
+                    new_full = self._eval_for_region(e.expr, old_raw.float()) if e.mode == "expr" else None
+                    v = None if new_full is not None else e.values.to(p.device)
+                    n_changed, max_change = 0, 0.0
+                    for sl in _row_chunks(region):
+                        o = old_raw[sl].float()
+                        if new_full is not None:
+                            nw = new_full[sl]
+                        else:
+                            vc = v if v.ndim == 0 else v[sl]
+                            nw = {"set": vc.expand_as(o), "add": o + vc, "scale": o * vc}[e.mode]
+                        if not torch.isfinite(nw).all():
+                            raise ValueError("result would contain inf/nan")
+                        region[sl] = nw.to(p.dtype)
+                        d = (region[sl].float() - o).abs()
+                        n_changed += int((d != 0).sum())
+                        max_change = max(max_change, d.max().item())
+                        del o, nw, d
+                    del new_full
                     reports.append({"name": e.name, "index": e.index, "mode": e.mode, "expr": e.expr,
-                                    "n": stored.numel(),
-                                    "n_changed": int((diff != 0).sum()),
-                                    "max_abs_change": diff.max().item(),
-                                    "stored_preview": stored.flatten()[:16].cpu()})
+                                    "n": region.numel(), "n_changed": n_changed, "max_abs_change": max_change,
+                                    "stored_preview": _first_values(region, 16).float().cpu()})
                 except Exception as ex:
                     raise RuntimeError(f"edit #{i + 1} ({e.mode} {e.name}[{e.index}]) failed: {ex}") from ex
         except Exception:
@@ -216,6 +262,9 @@ class WeightStore:
             for name in new_backups:
                 del self._backup[name]
             raise
+        finally:
+            del undo
+            release_memory()
         self.applied.extend({k: v for k, v in r.items() if k != "stored_preview"} for r in reports)
         self.pending.clear()
         return reports

@@ -17,7 +17,7 @@ from transformers import StoppingCriteria, StoppingCriteriaList
 from transformers.generation.streamers import BaseStreamer
 
 from .expr import summarize
-from .weights import WeightStore, describe, fmt
+from .weights import WeightStore, describe, fmt, release_memory
 
 def system_prompt(cfg, model_name: str) -> str:
     full = [i for i, t in enumerate(cfg.layer_types) if t == "full_attention"]
@@ -154,7 +154,7 @@ class SelfEditAgent:
             if fn == "transform_weights":
                 e, preview = s.transform(a["name"], a["index"], a["expression"])
                 return (f"staged: {e.name}[{e.index}] = {e.expr} ({e.n} values). Preview of the new values: "
-                        f"{summarize(preview, max_values=16)}\n{len(s.pending)} edit(s) pending; call apply_edits "
+                        f"{preview}\n{len(s.pending)} edit(s) pending; call apply_edits "
                         "to take effect (the expression is evaluated again then, after earlier staged edits).")
             if fn == "apply_edits":
                 if not s.pending:
@@ -178,6 +178,8 @@ class SelfEditAgent:
             return f"error: unknown tool '{fn}'"
         except Exception as ex:  # report errors back to the model instead of crashing
             return f"error: {ex}"
+        finally:
+            release_memory()  # stats/compute on big regions leave large cached blocks behind
 
     # ---- environment notes: things the model must know but did not do itself -------------
     def note(self, text: str) -> None:

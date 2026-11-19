@@ -179,6 +179,10 @@ def evaluate(expr: str, store, x: torch.Tensor | None = None):
         raise
     except (RuntimeError, TypeError, ValueError, IndexError, KeyError, ZeroDivisionError) as ex:
         raise ExprError(str(ex).split("\n")[0]) from None
+    finally:
+        # `ev` calls itself, so its closure refers to itself: a reference cycle that would keep this
+        # frame (and `x`, possibly gigabytes of GPU memory) alive until the garbage collector runs.
+        ev = None  # noqa: F841
     if isinstance(out, str):
         raise ExprError("the expression evaluates to a string, not a number or tensor")
     if isinstance(out, list):
