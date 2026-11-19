@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Self-Weight Lab</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --panel-2: #f0f0ec; --border: #e2e1dc;
+  --text: #1d1d1b; --muted: #6b6a65; --accent: #2f6fde; --accent-soft: #e6eefc;
+  --user: #2f6fde; --user-text: #ffffff;
+  --tool: #7a4fd6; --tool-soft: #f1ebfc;
+  --ok: #1f8a4c; --warn: #b8610f; --warn-soft: #fdf1e3; --err: #c4352b; --err-soft: #fbe9e7;
+  --edit: #d9480f; --edit-soft: #fff0e6; --restore: #1f8a4c; --restore-soft: #e7f5ec;
+  --neg: #2f6fde; --pos: #d9480f; --zero: #ecebe7;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413; --panel: #1d1d1b; --panel-2: #262624; --border: #33332f;
+    --text: #ecebe6; --muted: #9a9890; --accent: #6b9cf0; --accent-soft: #1f2a3d;
+    --user: #3a6fcf; --user-text: #ffffff;
+    --tool: #a585ec; --tool-soft: #2a2238;
+    --ok: #4cc27f; --warn: #e39a4f; --warn-soft: #33281b; --err: #ef7b70; --err-soft: #3a1f1c;
+    --edit: #ff8a4c; --edit-soft: #3a2518; --restore: #4cc27f; --restore-soft: #1c3226;
+    --neg: #5b95f5; --pos: #ff7a3d; --zero: #2b2b28;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  border-radius: 7px; padding: 5px 11px; }
+button:hover:not(:disabled) { background: var(--panel-2); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--err); }
+input, textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 7px; padding: 6px 9px; width: 100%; }
+input:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
+
+.app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel); flex-wrap: wrap; }
+header h1 { font-size: 15px; margin: 0; font-weight: 650; }
+.badge { font-size: 12px; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 2px 9px; }
+.status { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.dot.busy { background: var(--warn); animation: pulse 1s infinite; }
+.dot.off { background: var(--err); }
+@keyframes pulse { 50% { opacity: .3; } }
+.spacer { flex: 1; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
+.chat { display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+#timeline { overflow-y: auto; padding: 18px 22px 30px; display: flex; flex-direction: column; gap: 12px; }
+.composer { border-top: 1px solid var(--border); padding: 12px 16px; background: var(--panel); display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea { resize: none; min-height: 42px; max-height: 200px; }
+.side { border-left: 1px solid var(--border); overflow-y: auto; background: var(--panel); }
+.sec { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.sec h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px; }
+.sec h2 .count { background: var(--panel-2); border-radius: 999px; padding: 0 7px; font-size: 11px; }
+
+.empty { color: var(--muted); font-size: 13px; }
+.msg-user { align-self: flex-end; max-width: 75%; background: var(--user); color: var(--user-text);
+  padding: 8px 13px; border-radius: 14px 14px 4px 14px; white-space: pre-wrap; }
+.msg-asst { max-width: 92%; }
+.msg-asst .text:empty { display: none; }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 .7em; }
+.md h3, .md h4, .md h5, .md h6 { margin: 1em 0 .4em; line-height: 1.3; }
+.md h3 { font-size: 1.12em; } .md h4 { font-size: 1.02em; } .md h5, .md h6 { font-size: .95em; }
+.md ul, .md ol { margin: 0 0 .7em; padding-left: 1.5em; }
+.md li { margin: .15em 0; } .md li > ul, .md li > ol { margin: .2em 0; }
+.md code { background: var(--panel-2); border-radius: 4px; padding: .05em .35em; }
+.md pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; overflow-x: auto; margin: 0 0 .7em; }
+.md pre code { background: none; padding: 0; }
+.md blockquote { margin: 0 0 .7em; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: .9em 0; }
+.md a { color: var(--accent); }
+.md .tbl { overflow-x: auto; margin: 0 0 .7em; }
+.md table { border-collapse: collapse; font-size: 13px; }
+.md th, .md td { border: 1px solid var(--border); padding: 4px 9px; text-align: left; vertical-align: top; }
+.md th { background: var(--panel-2); font-weight: 600; }
+.meta { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.live { color: var(--text); }
+.live .calling { color: var(--tool); font-size: 12.5px; margin-top: 4px; }
+.live .calling summary { cursor: pointer; width: fit-content; }
+.live .calling pre.call-raw { color: var(--text); background: var(--panel-2); border-left: 3px solid var(--tool);
+  border-radius: 6px; padding: 6px 10px; margin: 4px 0 0; white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow: auto; }
+.caret { display: inline-block; width: 7px; height: 14px; background: var(--muted); vertical-align: -2px; animation: pulse 1s infinite; }
+details.think { margin: 2px 0 6px; font-size: 13px; color: var(--muted); }
+details.think summary { cursor: pointer; }
+details.think div { white-space: pre-wrap; border-left: 2px solid var(--border); padding-left: 10px; margin-top: 4px; }
+
+.tool { border: 1px solid var(--border); border-left: 3px solid var(--tool); border-radius: 8px; background: var(--panel);
+  margin-top: 6px; overflow: hidden; }
+.tool-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--tool-soft); flex-wrap: wrap; }
+.tool-name { font-family: var(--mono); font-weight: 600; color: var(--tool); font-size: 12.5px; }
+.args { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 7px 10px; font-size: 12.5px; }
+.args .k { color: var(--muted); font-family: var(--mono); }
+.args .v { font-family: var(--mono); word-break: break-all; }
+.args .v.link { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
+.result { border-top: 1px dashed var(--border); padding: 7px 10px; margin: 0; white-space: pre-wrap; word-break: break-word;
+  max-height: 260px; overflow: auto; }
+.result.err { background: var(--err-soft); color: var(--err); }
+.result.pending { color: var(--muted); font-style: italic; font-family: inherit; }
+
+.divider { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; margin: 6px 0; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 2px; }
+.divider.edit { color: var(--edit); } .divider.edit::before, .divider.edit::after { background: var(--edit); opacity: .5; }
+.divider.restore { color: var(--restore); } .divider.restore::before, .divider.restore::after { background: var(--restore); opacity: .5; }
+.divider span { background: var(--bg); padding: 0 4px; }
+details.instr { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); font-size: 13px; }
+details.instr > summary { cursor: pointer; padding: 7px 12px; color: var(--muted); }
+details.instr > summary .ttl { color: var(--text); font-weight: 600; }
+details.instr[open] > summary { border-bottom: 1px solid var(--border); }
+details.part { padding: 6px 12px; border-bottom: 1px dashed var(--border); }
+details.part:last-child { border-bottom: 0; }
+details.part > summary { cursor: pointer; font-weight: 500; }
+details.part .meta, details.instr .meta { font-weight: 400; color: var(--muted); font-size: 12px; margin: 0; }
+pre.instr-text { white-space: pre-wrap; word-break: break-word; background: var(--panel-2); border-radius: 6px;
+  padding: 8px 10px; margin: 6px 0 4px; max-height: 420px; overflow: auto; }
+.env-note { align-self: center; max-width: 85%; font-size: 12.5px; color: var(--muted); border: 1px dashed var(--border);
+  border-radius: 8px; padding: 5px 11px; display: flex; gap: 8px; align-items: baseline; }
+.env-note .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--tool); white-space: nowrap; }
+.notice { align-self: center; font-size: 12px; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 2px 10px; }
+.error { align-self: center; font-size: 12.5px; color: var(--err); background: var(--err-soft); border-radius: 8px; padding: 4px 12px; }
+
+.edit-row { font-size: 12.5px; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); margin-bottom: 5px; }
+.edit-row .nm { font-family: var(--mono); word-break: break-all; cursor: pointer; }
+.edit-row .nm:hover { color: var(--accent); }
+.edit-row .sub { color: var(--muted); font-size: 11.5px; }
+.pending-row { border-left: 3px solid var(--warn); }
+.applied-row { border-left: 3px solid var(--edit); }
+.drift-row { display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 6px; align-items: center; font-size: 12px; margin-bottom: 4px; }
+.drift-row .nm { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.drift-row .nm:hover { color: var(--accent); }
+.bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; grid-column: 1 / -1; }
+.bar i { display: block; height: 100%; background: var(--edit); }
+.btn-row { display: flex; gap: 8px; margin-top: 8px; }
+
+.insp-form { display: grid; gap: 6px; }
+.insp-form .row { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+label.chk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+label.chk input { width: auto; }
+#inspDesc { font-size: 12px; color: var(--muted); white-space: pre-wrap; margin-top: 8px; }
+#inspStats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; font-size: 12px; }
+#inspStats div { background: var(--panel-2); border-radius: 6px; padding: 4px 6px; }
+#inspStats b { display: block; font-family: var(--mono); font-weight: 500; }
+.heat-wrap { position: relative; margin-top: 8px; }
+canvas#heat { width: 100%; image-rendering: pixelated; border-radius: 4px; border: 1px solid var(--border); display: block; }
+#tip { position: absolute; pointer-events: none; background: var(--text); color: var(--bg); font: 11.5px var(--mono);
+  padding: 2px 6px; border-radius: 4px; display: none; white-space: nowrap; z-index: 2; }
+.legend { display: flex; justify-content: space-between; font: 11px var(--mono); color: var(--muted); margin-top: 3px; }
+.legend .grad { flex: 1; height: 8px; margin: 3px 8px; border-radius: 4px; background: linear-gradient(90deg, var(--neg), var(--zero), var(--pos)); }
+#inspVals { font-family: var(--mono); font-size: 11.5px; display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 2px; margin-top: 8px; max-height: 220px; overflow: auto; }
+#inspVals span { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; text-align: right; }
+.insp-err { color: var(--err); font-size: 12.5px; margin-top: 6px; }
+.tag { font-size: 11px; border-radius: 999px; padding: 0 7px; background: var(--edit-soft); color: var(--edit); }
+
+@media (max-width: 900px) {
+  .main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+  .side { border-left: 0; border-top: 1px solid var(--border); max-height: 45vh; }
+  #timeline { padding: 14px 16px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Self-Weight Lab</h1>
+    <span class="badge" id="modelBadge">connecting…</span>
+    <span class="status"><span class="dot off" id="dot"></span><span id="statusText">offline</span></span>
+    <span class="spacer"></span>
+    <label class="chk" title="max tool-call turns per message">steps <input id="maxSteps" type="number" min="1" max="100" value="20" style="width:62px"></label>
+    <button id="stopBtn" class="danger" disabled title="Stop generating (Esc)">Stop</button>
+    <button id="clearBtn" title="Clear the conversation. Weights are not touched.">New conversation</button>
+  </header>
+  <div class="main">
+    <div class="chat">
+      <div id="timeline"></div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="Ask the model to inspect or edit its own weights… (Shift+Enter: new line)"></textarea>
+        <button class="primary" id="sendBtn" type="submit">Send</button>
+      </form>
+    </div>
+    <aside class="side">
+      <div class="sec">
+        <h2>Staged edits <span class="count" id="pendingCount">0</span></h2>
+        <div id="pending"><div class="empty">Nothing staged.</div></div>
+      </div>
+      <div class="sec">
+        <h2>Applied edits <span class="count" id="appliedCount">0</span></h2>
+        <div id="applied"><div class="empty">Running on original weights.</div></div>
+        <div id="drift"></div>
+        <div class="btn-row">
+          <button id="discardBtn">Discard staged</button>
+          <button id="resetBtn" class="danger">Reset weights</button>
+        </div>
+      </div>
+      <div class="sec">
+        <h2>Inspector</h2>
+        <div class="insp-form">
+          <input id="inspName" list="paramList" placeholder="parameter, e.g. model.layers.3.self_attn.q_proj.weight" spellcheck="false">
+          <datalist id="paramList"></datalist>
+          <div class="row">
+            <input id="inspIndex" value="0:32, 0:64" placeholder="index, e.g. 0:32, 0:64" spellcheck="false">
+            <button id="inspBtn" class="primary">Inspect</button>
+          </div>
+          <label class="chk"><input type="checkbox" id="inspDelta"> show change from original</label>
+        </div>
+        <div id="inspOut"></div>
+      </div>
+    </aside>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const tl = $("timeline");
+let ws, busy = false, live = null, lastCalls = [], lastAsst = null, genEnd = null, showCallRaw = false;
+
+// ---------- markdown (small, safe: everything is HTML-escaped before formatting) ----------
+function esc(s) { return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+function inline(s) {
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);  // protect code spans
+  s = esc(s)
+    .replace(/\*\*(?=\S)(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__(?=\S)(.+?)__/g, "<strong>$1</strong>")
+    .replace(/(^|[^*\w])\*(?=\S)([^*\n]+?)\*(?!\w)/g, "$1<em>$2</em>")
+    .replace(/(^|[^\w])_(?=\S)([^_\n]+?)_(?!\w)/g, "$1<em>$2</em>")
+    .replace(/~~(.+?)~~/g, "<del>$1</del>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`);
+}
+function md(src) {
+  const lines = src.replace(/\r/g, "").split("\n"), out = [];
+  let i = 0;
+  const isTableSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+  const cells = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim()));
+  while (i < lines.length) {
+    const l = lines[i];
+    let m;
+    if ((m = l.match(/^\s*(```|~~~)\s*([\w+-]*)/))) {                 // fenced code (may be unclosed while streaming)
+      const fence = m[1], buf = []; i++;
+      while (i < lines.length && !lines[i].trim().startsWith(fence)) buf.push(lines[i++]);
+      i++; out.push(`<pre><code>${esc(buf.join("\n"))}</code></pre>`); continue;
+    }
+    if (!l.trim()) { i++; continue; }
+    if ((m = l.match(/^(#{1,6})\s+(.*)$/))) { const n = Math.min(m[1].length + 2, 6); out.push(`<h${n}>${inline(m[2])}</h${n}>`); i++; continue; }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) { out.push("<hr>"); i++; continue; }
+    if (l.includes("|") && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const head = cells(l); i += 2; const rows = [];
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) rows.push(cells(lines[i++]));
+      out.push(`<div class="tbl"><table><thead><tr>${head.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>` +
+        rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("") + "</tbody></table></div>");
+      continue;
+    }
+    if (/^\s*>/.test(l)) {
+      const buf = []; while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ""));
+      out.push(`<blockquote>${md(buf.join("\n"))}</blockquote>`); continue;
+    }
+    if ((m = l.match(/^(\s*)([-*+]|\d+[.)])\s+/))) {                    // lists, nested by indentation
+      const items = []; const ordered = /\d/.test(m[2]); const base = m[1].length;
+      const start = ordered ? parseInt(m[2]) : 1;
+      while (i < lines.length) {
+        const li = lines[i], mm = li.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+        if (mm && mm[1].length <= base + 1) { items.push([mm[3]]); i++; continue; }
+        if (items.length && (li.trim() === "" ? (i + 1 < lines.length && /^\s{2,}\S/.test(lines[i + 1])) : /^\s{2,}\S/.test(li))) {
+          items[items.length - 1].push(li.replace(new RegExp(`^\\s{0,${base + 4}}`), "")); i++; continue;
+        }
+        break;
+      }
+      const tag = ordered ? "ol" : "ul";
+      out.push(`<${tag}${ordered && start !== 1 ? ` start="${start}"` : ""}>` + items.map(([first, ...rest]) =>
+        `<li>${inline(first)}${rest.length ? md(rest.join("\n")) : ""}</li>`).join("") + `</${tag}>`);
+      continue;
+    }
+    const buf = [];                                                    // paragraph
+    while (i < lines.length && lines[i].trim() && !/^(\s*(```|~~~|>|[-*+]\s|\d+[.)]\s)|#{1,6}\s)/.test(lines[i])) buf.push(lines[i++]);
+    if (!buf.length) buf.push(lines[i++]);
+    out.push(`<p>${buf.map(inline).join("<br>")}</p>`);
+  }
+  return out.join("");
+}
+
+// ---------- timeline ----------
+function atBottom() { return tl.scrollHeight - tl.scrollTop - tl.clientHeight < 80; }
+function add(node) { const stick = atBottom(); tl.appendChild(node); if (stick) tl.scrollTop = tl.scrollHeight; return node; }
+
+function startLive() {
+  live = { text: "", node: add(el("div", "msg-asst")) };
+  live.body = live.node.appendChild(el("div", "live"));
+  renderLive();
+}
+function renderLive() {
+  if (!live) return;
+  const stick = atBottom();
+  let t = live.text.replace(/^<think>\n?/, "");
+  live.body.textContent = "";
+  if (t.includes("</think>")) {
+    const [r, rest] = t.split("</think>");
+    if (r.trim()) { const d = live.body.appendChild(el("details", "think")); d.open = true;
+      d.appendChild(el("summary", null, "Thinking")); d.appendChild(el("div", null, r.trim())); }
+    t = rest;
+  }
+  const j = t.indexOf("<tool_call>");
+  const body = live.body.appendChild(el("div", "md"));
+  body.innerHTML = md((j >= 0 ? t.slice(0, j) : t).replace(/^\s+/, ""));
+  if (j >= 0) {
+    // Expandable view of the tool call as it is being written. The live view is rebuilt on every
+    // token, so the open/closed choice is kept in showCallRaw (and sticks for later calls too).
+    const raw = t.slice(j), fn = (raw.match(/<function=([\w.-]+)>/) || [])[1];
+    const d = live.body.appendChild(el("details", "calling"));
+    d.open = showCallRaw;
+    const sm = d.appendChild(el("summary", null, `⋯ preparing tool call${fn ? ": " + fn : ""}`));
+    sm.onclick = (e) => { e.preventDefault(); showCallRaw = !showCallRaw; renderLive(); };
+    const pre = d.appendChild(el("pre", "call-raw", raw));
+    if (showCallRaw) pre.scrollTop = pre.scrollHeight;
+  }
+  else {
+    let at = body;  // put the cursor at the end of the deepest last block (list item, paragraph, code)
+    while (at.lastElementChild && /^(OL|UL|LI|P|PRE|BLOCKQUOTE|H\d)$/.test(at.lastElementChild.tagName)) at = at.lastElementChild;
+    at.appendChild(el("span", "caret"));
+  }
+  if (stick) tl.scrollTop = tl.scrollHeight;
+}
+
+function renderAssistant(ev, node) {
+  node = node || add(el("div", "msg-asst"));
+  node.textContent = "";
+  if (ev.reasoning) { const d = node.appendChild(el("details", "think"));
+    d.appendChild(el("summary", null, "Thinking")); d.appendChild(el("div", null, ev.reasoning)); }
+  node.appendChild(el("div", "text md")).innerHTML = md(ev.content || "");
+  lastCalls = [];
+  for (const c of ev.calls || []) {
+    const card = node.appendChild(el("div", "tool"));
+    const head = card.appendChild(el("div", "tool-head"));
+    head.appendChild(el("span", "tool-name", c.fn));
+    const keys = Object.keys(c.args || {});
+    if (keys.length) {
+      const g = card.appendChild(el("div", "args"));
+      for (const k of keys) {
+        g.appendChild(el("span", "k", k));
+        const v = g.appendChild(el("span", "v", c.args[k]));
+        if (k === "name") { v.classList.add("link"); v.title = "open in inspector";
+          v.onclick = () => openInspector(c.args.name, c.args.index); }
+      }
+    }
+    card.result = card.appendChild(el("pre", "result pending", "running…"));
+    lastCalls.push(card);
+  }
+  if (ev.interrupted) node.appendChild(el("div", "meta")).appendChild(el("span", "tag", "interrupted"));
+  if (genEnd) {
+    const g = genEnd; genEnd = null;
+    node.appendChild(el("div", "meta", `re-read ${g.prompt_tokens} tokens in ${(g.prefill_seconds ?? 0).toFixed(1)} s · ` +
+      `wrote ${g.new_tokens} at ${g.tok_per_s.toFixed(1)} tok/s · ${g.seconds.toFixed(1)} s total`));
+  }
+  lastAsst = node;
+  return node;
+}
+
+function renderToolResult(ev) {
+  const card = lastCalls.shift();
+  const pre = card ? card.result : add(el("pre", "result"));
+  pre.className = "result" + (ev.result.startsWith("error") ? " err" : "");
+  pre.textContent = ev.result;
+  if (ev.weights_changed) divider(ev.fn === "reset_weights" ? "restore" : "edit");
+}
+
+function divider(kind, who) {
+  const d = el("div", "divider " + kind);
+  d.appendChild(el("span", null, kind === "edit"
+    ? "⚡ Weights modified — everything below comes from the edited model"
+    : `↺ Weights restored to original${who ? " (by you)" : ""}`));
+  add(d);
+}
+
+function handle(ev, replay) {
+  switch (ev.type) {
+    case "hello":
+      $("modelBadge").textContent = `${ev.model} · ${(ev.params / 1e9).toFixed(2)}B params · ${ev.layers} layers${ev.think ? " · thinking" : ""}`;
+      instr = ev.instructions;
+      tl.textContent = "";
+      tl.appendChild(instructionsBlock());
+      if (!ev.history.length) tl.appendChild(intro());
+      for (const h of ev.history) handle(h, true);
+      renderState(ev.state); setBusy(ev.busy);
+      if (ev.busy) startLive();
+      break;
+    case "user": tl.querySelector(".intro")?.remove(); add(el("div", "msg-user", ev.text)); break;
+    case "env_note": {
+      tl.querySelector(".intro")?.remove();
+      const n = add(el("div", "env-note"));
+      n.appendChild(el("span", "lbl", "told the model"));
+      n.appendChild(el("span", null, ev.text));
+      break;
+    }
+    case "gen_start": if (!replay) startLive(); break;
+    case "token": if (!live) startLive(); live.text += ev.text; renderLive(); break;
+    case "assistant": { const n = live ? live.node : null; live = null; renderAssistant(ev, n); break; }
+    case "gen_end": genEnd = ev; break;  // arrives just before its "assistant" event
+    case "tool_result": renderToolResult(ev); break;
+    case "state": renderState(ev); break;
+    case "notice":
+      if (ev.weights_changed) divider("restore", true); else add(el("div", "notice", ev.text));
+      break;
+    case "error": add(el("div", "error", ev.text)); if (live) { live.node.remove(); live = null; } break;
+    case "busy":
+      setBusy(ev.busy);
+      if (!ev.busy && live) { live.node.remove(); live = null; }
+      if (!ev.busy && queued && !replay) { const t = queued; queued = null; sendChat(t); }
+      break;
+    case "cleared": tl.textContent = ""; tl.appendChild(instructionsBlock()); tl.appendChild(intro()); break;
+  }
+}
+
+// Collapsed block at the top of the conversation: everything the model is told besides your messages.
+let instr = null;
+function instructionsBlock() {
+  const box = el("details", "instr");
+  const sum = box.appendChild(el("summary"));
+  sum.appendChild(el("span", "ttl", "Instructions the model sees"));
+  if (!instr) return box;
+  sum.appendChild(el("span", "meta", ` · system prompt, ${instr.tools.length} tools, tool-call format`));
+
+  const part = (title, note, text) => {
+    const d = box.appendChild(el("details", "part"));
+    const s2 = d.appendChild(el("summary", null, title));
+    if (note) s2.appendChild(el("span", "meta", " · " + note));
+    const pre = d.appendChild(el("pre", "instr-text"));
+    if (text != null) pre.textContent = text;
+    return [d, pre];
+  };
+  part("System prompt", "written by this app", instr.system_prompt);
+  part("Exact system block", "as the chat template renders it: system prompt + tool definitions + call format",
+       instr.preamble);
+  const [ctx, pre] = part("Full context for the next turn", "everything the model re-reads, loaded when opened", "");
+  const load = async () => {
+    pre.textContent = "loading…";
+    const r = await fetch("/api/context"); const j = await r.json();
+    pre.textContent = j.text;
+    ctx.querySelector("summary .meta").textContent = ` · ${j.tokens.toLocaleString()} tokens, ${j.messages} messages (refreshes each time you open it)`;
+  };
+  ctx.addEventListener("toggle", () => ctx.open && load());
+  return box;
+}
+
+function intro() {
+  const d = el("div", "empty intro");
+  d.innerHTML = `The model can list, read, stage, apply and reset edits to its own weights.
+  Try: <i>“Read row 0, columns 0:8 of your layer 3 query projection, then set them to 0, 0, 0.1, 0.1, 0, 0, 0.1, 0.1 and apply.”</i>`;
+  return d;
+}
+
+function setBusy(b) {
+  busy = b;
+  $("dot").className = "dot" + (b ? " busy" : "");
+  $("statusText").textContent = b ? "generating…" : "idle";
+  $("stopBtn").disabled = !b;
+  if (!b) stopping = false;
+  for (const id of ["clearBtn", "discardBtn", "resetBtn"]) $(id).disabled = b;
+  updateSendBtn();
+}
+
+// While generating, the composer button stops the model (Esc does too). If you have typed a
+// message, it becomes "Interrupt & send": stop, then send your message once the model is idle.
+let stopping = false, queued = null;
+function updateSendBtn() {
+  const b = $("sendBtn"), hasText = !!$("input").value.trim();
+  b.disabled = !ws || ws.readyState !== 1;
+  if (stopping) { b.textContent = queued ? "Stopping, then sending…" : "Stopping…"; b.className = "danger"; }
+  else if (!busy) { b.textContent = "Send"; b.className = "primary"; }
+  else if (hasText) { b.textContent = "Interrupt & send"; b.className = "primary"; }
+  else { b.textContent = "Stop"; b.className = "danger"; }
+  $("stopBtn").disabled = !busy;
+}
+function stopGen() {
+  if (!busy) return;  // clicking again while "Stopping…" just resends the request
+  ws.send(JSON.stringify({ type: "stop" }));
+  stopping = true; updateSendBtn();
+}
+function sendChat(t) { ws.send(JSON.stringify({ type: "chat", text: t, max_steps: +$("maxSteps").value || 20 })); }
+
+// ---------- weight state ----------
+function renderState(s) {
+  $("pendingCount").textContent = s.pending.length;
+  $("appliedCount").textContent = s.applied.length;
+  const P = $("pending"); P.textContent = "";
+  if (!s.pending.length) P.appendChild(el("div", "empty", "Nothing staged."));
+  for (const e of s.pending) {
+    const r = P.appendChild(el("div", "edit-row pending-row"));
+    const nm = r.appendChild(el("div", "nm", `${e.name}[${e.index}]`)); nm.onclick = () => openInspector(e.name, e.index);
+    r.appendChild(el("div", "sub", `${e.mode} ${e.values} · ${e.n.toLocaleString()} values`));
+  }
+  const A = $("applied"); A.textContent = "";
+  if (!s.applied.length) A.appendChild(el("div", "empty", "Running on original weights."));
+  for (const e of s.applied) {
+    const r = A.appendChild(el("div", "edit-row applied-row"));
+    const nm = r.appendChild(el("div", "nm", `${e.name}[${e.index}]`)); nm.onclick = () => openInspector(e.name, e.index, true);
+    r.appendChild(el("div", "sub", `${e.mode} · ${e.n_changed.toLocaleString()}/${e.n.toLocaleString()} changed · max |Δ| ${e.max_abs_change.toPrecision(3)}`));
+  }
+  const D = $("drift"); D.textContent = "";
+  const entries = Object.entries(s.drift || {});
+  if (entries.length) {
+    D.appendChild(el("h2", null, "Distance from original (‖Δ‖₂)")).style.marginTop = "12px";
+    const mx = Math.max(...entries.map(([, v]) => v), 1e-12);
+    for (const [n, v] of entries) {
+      const row = D.appendChild(el("div", "drift-row"));
+      const nm = row.appendChild(el("span", "nm", n.replace(/^model\./, ""))); nm.title = n;
+      nm.onclick = () => openInspector(n, null, true);
+      row.appendChild(el("span", "mono", v.toPrecision(3))).style.textAlign = "right";
+      row.appendChild(el("div", "bar")).appendChild(el("i")).style.width = (100 * v / mx) + "%";
+    }
+  }
+}
+
+// ---------- inspector ----------
+async function openInspector(name, index, delta) {
+  $("inspName").value = name;
+  if (index) $("inspIndex").value = index;
+  $("inspDelta").checked = !!delta;
+  inspect();
+}
+
+async function inspect() {
+  const out = $("inspOut"); out.textContent = "";
+  const name = $("inspName").value.trim(), index = $("inspIndex").value.trim() || ":";
+  if (!name) return;
+  const [r, d] = await Promise.all([
+    fetch("/api/inspect", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, index, delta: $("inspDelta").checked }) }),
+    fetch("/api/describe?name=" + encodeURIComponent(name)),
+  ]);
+  if (d.ok) out.appendChild(el("div", null)).id = "inspDesc", $("inspDesc").textContent = (await d.json()).text;
+  const j = await r.json();
+  if (!r.ok) { out.appendChild(el("div", "insp-err", j.detail)); return; }
+  const head = out.appendChild(el("div", "meta"));
+  head.textContent = `region shape [${j.shape.join(", ")}] · ${j.values.length.toLocaleString()} values` + ($("inspDelta").checked ? " · showing current − original" : "");
+  if (j.modified) { head.appendChild(document.createTextNode(" ")); head.appendChild(el("span", "tag", "modified")); }
+  const st = out.appendChild(el("div")); st.id = "inspStats";
+  for (const k of ["mean", "std", "min", "max", "n_nonzero"]) {
+    const c = st.appendChild(el("div", null, k)); c.appendChild(el("b", null, k === "n_nonzero" ? j.stats[k].toLocaleString() : j.stats[k].toPrecision(4)));
+  }
+  drawHeat(out, j);
+  if (j.values.length <= 256) {
+    const g = out.appendChild(el("div")); g.id = "inspVals";
+    j.values.forEach((v) => g.appendChild(el("span", null, v.toPrecision(4))));
+  }
+}
+
+function cssColor(v) {
+  const c = getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const m = c.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  return m ? [1, 2, 3].map((i) => parseInt(m[i], 16)) : [128, 128, 128];
+}
+
+function drawHeat(out, j) {
+  const [rows, cols] = j.grid, vals = j.values;
+  const wrap = out.appendChild(el("div", "heat-wrap"));
+  const cv = wrap.appendChild(el("canvas")); cv.id = "heat";
+  const tip = wrap.appendChild(el("div")); tip.id = "tip";
+  cv.width = cols; cv.height = rows;
+  const W = wrap.clientWidth || 360;
+  cv.style.height = Math.max(18, Math.min(420, rows * W / cols)) + "px";
+  let mx = 0; for (const v of vals) mx = Math.max(mx, Math.abs(v)); mx = mx || 1;
+  const neg = cssColor("--neg"), pos = cssColor("--pos"), zero = cssColor("--zero");
+  const img = cv.getContext("2d").createImageData(cols, rows);
+  vals.forEach((v, i) => {
+    const t = Math.min(1, Math.abs(v) / mx), end = v < 0 ? neg : pos;
+    for (let k = 0; k < 3; k++) img.data[4 * i + k] = zero[k] + (end[k] - zero[k]) * Math.sqrt(t);
+    img.data[4 * i + 3] = 255;
+  });
+  cv.getContext("2d").putImageData(img, 0, 0);
+  const lg = out.appendChild(el("div", "legend"));
+  lg.appendChild(el("span", null, (-mx).toPrecision(3))); lg.appendChild(el("span", "grad")); lg.appendChild(el("span", null, mx.toPrecision(3)));
+  cv.onmousemove = (e) => {
+    const b = cv.getBoundingClientRect();
+    const c = Math.floor((e.clientX - b.left) / b.width * cols), r = Math.floor((e.clientY - b.top) / b.height * rows);
+    if (r < 0 || c < 0 || r >= rows || c >= cols) return;
+    tip.style.display = "block";
+    tip.textContent = `[${r}, ${c}] ${vals[r * cols + c].toPrecision(4)}`;
+    tip.style.left = Math.min(e.clientX - b.left + 10, b.width - 120) + "px";
+    tip.style.top = (e.clientY - b.top + 12) + "px";
+  };
+  cv.onmouseleave = () => (tip.style.display = "none");
+}
+
+// ---------- wiring ----------
+function connect() {
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => { $("dot").className = "dot"; $("statusText").textContent = "idle"; updateSendBtn(); };
+  ws.onmessage = (m) => handle(JSON.parse(m.data));
+  ws.onclose = () => { $("dot").className = "dot off"; $("statusText").textContent = "disconnected — retrying";
+    $("sendBtn").disabled = true; setTimeout(connect, 1500); };
+}
+
+$("composer").onsubmit = (e) => {
+  e.preventDefault();
+  const t = $("input").value.trim();
+  if (!ws || ws.readyState !== 1) return;
+  if (busy) {
+    if (t) { queued = t; $("input").value = ""; autosize(); }
+    stopGen();
+    return;
+  }
+  if (!t) return;
+  sendChat(t);
+  $("input").value = ""; autosize();
+};
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && busy) { e.preventDefault(); stopGen(); } });
+$("input").addEventListener("input", updateSendBtn);
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("composer").requestSubmit(); }
+});
+function autosize() { const t = $("input"); t.style.height = "auto"; t.style.height = Math.min(200, t.scrollHeight) + "px"; }
+$("input").addEventListener("input", autosize);
+$("stopBtn").onclick = stopGen;
+async function post(url) { const r = await fetch(url, { method: "POST" }); if (!r.ok) add(el("div", "error", (await r.json()).detail)); }
+$("resetBtn").onclick = () => confirm("Restore all weights to their original values?") && post("/api/reset");
+$("discardBtn").onclick = () => post("/api/discard");
+$("clearBtn").onclick = () => confirm("Clear the conversation? Weights stay as they are.") && post("/api/clear");
+$("inspBtn").onclick = inspect;
+for (const id of ["inspName", "inspIndex"]) $(id).addEventListener("keydown", (e) => e.key === "Enter" && inspect());
+$("inspDelta").onchange = inspect;
+fetch("/api/params").then((r) => r.json()).then((ps) => {
+  const dl = $("paramList");
+  for (const p of ps) { const o = document.createElement("option"); o.value = p.name; o.label = `[${p.shape.join(", ")}]`; dl.appendChild(o); }
+});
+connect();
+</script>
+</body>
+</html>

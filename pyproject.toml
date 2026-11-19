@@ -1,0 +1,29 @@
+[project]
+name = "self-weight-modification"
+version = "0.1.0"
+description = "An LLM agent (Qwen3.5) with tools to read and edit its own weights in memory."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "causal-conv1d>=1.7.0",
+    "fastapi>=0.165.0",
+    "flash-linear-attention>=0.6.0",
+    "gb10-load-llm>=0.1.2",
+    "ninja>=1.13.2",
+    "torch>=2.15.0",
+    "tqdm>=4.70.1",
+    "transformers>=5.0",
+    "uvicorn[standard]>=0.54.0",
+    "wheel>=0.48.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.uv]
+no-build-isolation-package = ["causal-conv1d"]
