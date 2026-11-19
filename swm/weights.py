@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 
 import torch
 
+from .expr import ExprError, evaluate
+
 MAX_READ = 512  # largest number of values one read may return (keeps agent context small)
 
 
@@ -61,8 +63,9 @@ class Edit:
     name: str
     index: str
     values: torch.Tensor  # float32: shaped like the target region, or a single value to broadcast
-    mode: str = "set"  # set | add | scale
+    mode: str = "set"  # set | add | scale | expr
     n: int = 0  # number of elements in the target region
+    expr: str | None = None  # mode "expr": evaluated at apply time with x = the current region
 
 
 @dataclass
@@ -135,6 +138,44 @@ class WeightStore:
         self.pending.append(e)
         return e
 
+    # ---- matrix math -------------------------------------------------------------
+    @torch.no_grad()
+    def compute(self, expression: str):
+        """Evaluate an expression read-only (see swm.expr). Returns a tensor or a number."""
+        return evaluate(expression, self)
+
+    @torch.no_grad()
+    def _eval_for_region(self, expression: str, old: torch.Tensor) -> torch.Tensor:
+        r = evaluate(expression, self, x=old)
+        if not isinstance(r, torch.Tensor):
+            r = torch.tensor(float(r), device=old.device)
+        if r.dtype == torch.bool:
+            raise ExprError("the expression gives a boolean mask; wrap it, e.g. where(x > 0, x, 0)")
+        try:
+            ok = torch.broadcast_shapes(r.shape, old.shape) == old.shape
+        except RuntimeError:
+            ok = False
+        if not ok:
+            raise ExprError(f"result shape {list(r.shape)} does not fit the target region {list(old.shape)}")
+        r = r.float().expand_as(old)
+        if not torch.isfinite(r).all():
+            raise ExprError("result contains inf/nan")
+        return r
+
+    @torch.no_grad()
+    def transform(self, name: str, index: str, expression: str) -> tuple[Edit, torch.Tensor]:
+        """Stage an edit computed from an expression, where x is the region's current value.
+        It is checked (and previewed) now, but evaluated again when applied, in order, so it
+        sees the effect of edits applied before it in the same batch."""
+        p = self._get(name)
+        old = p.data[parse_index(index, p.ndim)].float()
+        if old.numel() == 0:
+            raise ValueError(f"index '{index}' selects no elements of {name} {tuple(p.shape)}")
+        preview = self._eval_for_region(expression, old)
+        e = Edit(name, index, torch.tensor(0.0), "expr", old.numel(), expression)
+        self.pending.append(e)
+        return e, preview
+
     @torch.no_grad()
     def apply(self) -> list[dict]:
         """Commit all staged edits into the live tensors, in order. All-or-nothing:
@@ -152,14 +193,18 @@ class WeightStore:
                     old_raw = p.data[idx].clone()
                     undo.append((p, idx, old_raw))
                     old = old_raw.float()
-                    v = e.values.to(p.device)
-                    new = {"set": v.expand_as(old), "add": old + v, "scale": old * v}[e.mode]
+                    if e.mode == "expr":
+                        new = self._eval_for_region(e.expr, old)
+                    else:
+                        v = e.values.to(p.device)
+                        new = {"set": v.expand_as(old), "add": old + v, "scale": old * v}[e.mode]
                     if not torch.isfinite(new).all():
                         raise ValueError("result would contain inf/nan")
                     p.data[idx] = new.to(p.dtype)
                     stored = p.data[idx].float()
                     diff = (stored - old).abs()
-                    reports.append({"name": e.name, "index": e.index, "mode": e.mode, "n": stored.numel(),
+                    reports.append({"name": e.name, "index": e.index, "mode": e.mode, "expr": e.expr,
+                                    "n": stored.numel(),
                                     "n_changed": int((diff != 0).sum()),
                                     "max_abs_change": diff.max().item(),
                                     "stored_preview": stored.flatten()[:16].cpu()})

@@ -453,7 +453,7 @@ function instructionsBlock() {
 
 function intro() {
   const d = el("div", "empty intro");
-  d.innerHTML = `The model can list, read, stage, apply and reset edits to its own weights.
+  d.innerHTML = `The model can list, read, stage, apply and reset edits to its own weights, and do matrix math on them.
   Try: <i>“Read row 0, columns 0:8 of your layer 3 query projection, then set them to 0, 0, 0.1, 0.1, 0, 0, 0.1, 0.1 and apply.”</i>`;
   return d;
 }
@@ -496,14 +496,14 @@ function renderState(s) {
   for (const e of s.pending) {
     const r = P.appendChild(el("div", "edit-row pending-row"));
     const nm = r.appendChild(el("div", "nm", `${e.name}[${e.index}]`)); nm.onclick = () => openInspector(e.name, e.index);
-    r.appendChild(el("div", "sub", `${e.mode} ${e.values} · ${e.n.toLocaleString()} values`));
+    r.appendChild(el("div", "sub", `${e.mode === "expr" ? "" : e.mode + " "}${e.values} · ${e.n.toLocaleString()} values`));
   }
   const A = $("applied"); A.textContent = "";
   if (!s.applied.length) A.appendChild(el("div", "empty", "Running on original weights."));
   for (const e of s.applied) {
     const r = A.appendChild(el("div", "edit-row applied-row"));
     const nm = r.appendChild(el("div", "nm", `${e.name}[${e.index}]`)); nm.onclick = () => openInspector(e.name, e.index, true);
-    r.appendChild(el("div", "sub", `${e.mode} · ${e.n_changed.toLocaleString()}/${e.n.toLocaleString()} changed · max |Δ| ${e.max_abs_change.toPrecision(3)}`));
+    r.appendChild(el("div", "sub", `${e.expr ? "= " + e.expr : e.mode} · ${e.n_changed.toLocaleString()}/${e.n.toLocaleString()} changed · max |Δ| ${e.max_abs_change.toPrecision(3)}`));
   }
   const D = $("drift"); D.textContent = "";
   const entries = Object.entries(s.drift || {});

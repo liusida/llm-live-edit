@@ -16,6 +16,7 @@ import torch
 from transformers import StoppingCriteria, StoppingCriteriaList
 from transformers.generation.streamers import BaseStreamer
 
+from .expr import summarize
 from .weights import WeightStore, describe, fmt
 
 def system_prompt(cfg, model_name: str) -> str:
@@ -36,6 +37,8 @@ The researcher can reset you from outside; you will be told when they do.
 Tools:
 - list_weights / describe_weight / read_weights / weight_stats let you look at your weights.
 - write_weights stages a change to a region of a tensor. Staged changes do nothing yet.
+- compute_weights evaluates matrix math on your weights without changing anything.
+- transform_weights stages a change computed by matrix math, where x is the region's current value.
 - apply_edits commits staged changes. Your next words come from the changed weights.
 - reset_weights restores all your weights to their original values.
 
@@ -49,7 +52,19 @@ Slices are half-open: "a:b" means a..b-1, so "0:0" selects nothing.
 Architecture: {cfg.num_hidden_layers} layers. Full attention layers: {", ".join(map(str, full))}.
 All other layers are linear attention (Gated DeltaNet). Hidden size {cfg.hidden_size},
 MLP size {cfg.intermediate_size}, vocabulary {cfg.vocab_size}.
-Weights are bfloat16; typical magnitudes are around 0.01-0.05."""
+Weights are bfloat16; typical magnitudes are around 0.01-0.05.
+
+Matrix math (compute_weights, transform_weights) uses Python-like expressions:
+  W("name", "index")   a region of any weight, e.g. W("model.layers.3.mlp.up_proj.weight", "0:4, :")
+  x                    the target region (transform_weights only)
+  + - * / ** @ .T, comparisons (x > 0), & |, numbers, pi
+  abs sign sqrt exp log tanh sigmoid relu round clip(a, lo, hi) where(cond, a, b)
+  sum mean std max min norm (each takes dim=..., keepdim=True) count_nonzero
+  matmul outer(u, v) transpose normalize(a, dim) cos_sim(a, b, dim) project_out(a, v)
+  low_rank(a, k) svals(a, k) trace diag flatten reshape(a, *shape)
+  zeros_like ones_like randn_like(a, seed=0, std=1.0) eye(n)
+Examples: double a region: x * 2.  Copy from layer 4: W("model.layers.4.mlp.up_proj.weight", "0:8, :").
+  Similarity of two rows: cos_sim(W(n, "0"), W(n, "1"), dim=0)."""
 
 TOOLS = [
     {"name": "list_weights", "description": "List parameter names and shapes. Optional regex filter, e.g. 'layers\\.3\\.'.",
@@ -71,6 +86,16 @@ TOOLS = [
          "values": {"type": "string", "description": "e.g. '0, 0, 0.1, 0.1' or '0'"},
          "mode": {"type": "string", "enum": ["set", "add", "scale"]}},
          "required": ["name", "index", "values"]}},
+    {"name": "compute_weights", "description": "Evaluate a matrix-math expression over your weights, read-only. Returns the result's shape, statistics and values. Use W(\"name\", \"index\") to refer to a region.",
+     "parameters": {"type": "object", "properties": {
+         "expression": {"type": "string", "description": "e.g. 'norm(W(\"model.layers.3.mlp.up_proj.weight\", \"0:4, :\"), dim=1)'"}},
+         "required": ["expression"]}},
+    {"name": "transform_weights", "description": "Stage a change to a region computed from an expression, where x is the region's current value. The result must have the region's shape (or broadcast to it). Shows a preview; takes effect only after apply_edits.",
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "index": {"type": "string", "description": "':' = whole tensor, '0' = row 0, '0, 0:4' = row 0 cols 0-3"},
+         "expression": {"type": "string", "description": "e.g. 'x * 2', 'x + 0.1 * W(\"model.layers.4.mlp.up_proj.weight\", \"0:8, :\")'"}},
+         "required": ["name", "index", "expression"]}},
     {"name": "apply_edits", "description": "Commit all staged edits into your live weights.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "discard_edits", "description": "Drop staged edits that were not applied yet.",
@@ -124,6 +149,13 @@ class SelfEditAgent:
                 e = s.write(a["name"], a["index"], a["values"], a.get("mode", "set") or "set")
                 return (f"staged: {e.mode} {e.name}[{e.index}] ({e.n} values). "
                         f"{len(s.pending)} edit(s) pending; call apply_edits to take effect.")
+            if fn == "compute_weights":
+                return "result: " + summarize(s.compute(a["expression"]))
+            if fn == "transform_weights":
+                e, preview = s.transform(a["name"], a["index"], a["expression"])
+                return (f"staged: {e.name}[{e.index}] = {e.expr} ({e.n} values). Preview of the new values: "
+                        f"{summarize(preview, max_values=16)}\n{len(s.pending)} edit(s) pending; call apply_edits "
+                        "to take effect (the expression is evaluated again then, after earlier staged edits).")
             if fn == "apply_edits":
                 if not s.pending:
                     return "nothing staged."
@@ -132,7 +164,7 @@ class SelfEditAgent:
                 except Exception as ex:
                     return (f"error: {ex}\nNothing was applied; your weights are unchanged. "
                             f"{len(s.pending)} edit(s) still staged: call discard_edits, then stage them again.")
-                out = [f"{r['name']}[{r['index']}] {r['mode']}: {r['n_changed']}/{r['n']} values changed, "
+                out = [f"{r['name']}[{r['index']}] {r['expr'] or r['mode']}: {r['n_changed']}/{r['n']} values changed, "
                        f"max |change| {r['max_abs_change']:.4g}; stored (bf16): "
                        f"{fmt(r['stored_preview'])}{' ...' if r['n'] > 16 else ''}" for r in reps]
                 return ("applied. Your weights are now changed: everything you write from here on comes "
@@ -184,7 +216,8 @@ class SelfEditAgent:
     def state(self) -> dict:
         st = self.store
         return {"pending": [{"name": e.name, "index": e.index, "mode": e.mode, "n": e.n,
-                             "values": fmt(e.values.flatten()[:8]) + (" ..." if e.values.numel() > 8 else "")}
+                             "values": (f"= {e.expr}" if e.expr else
+                                        fmt(e.values.flatten()[:8]) + (" ..." if e.values.numel() > 8 else ""))}
                             for e in st.pending],
                 "applied": list(st.applied),
                 "drift": st.drift()}

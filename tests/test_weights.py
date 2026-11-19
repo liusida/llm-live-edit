@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from swm import WeightStore, load
+from swm import WeightStore
 from swm.agent import parse_calls
 from swm.weights import parse_index, parse_values
 
@@ -26,11 +26,6 @@ def test_parse_calls():
     text = ("Let me look.\n<tool_call>\n<function=read_weights>\n<parameter=name>\nx.weight\n</parameter>\n"
             "<parameter=index>\n0, 0:4\n</parameter>\n</function>\n</tool_call>")
     assert parse_calls(text) == [("read_weights", {"name": "x.weight", "index": "0, 0:4"})]
-
-
-@pytest.fixture(scope="module")
-def mt():
-    return load("Qwen/Qwen3.5-2B")  # small + tied embeddings (used by the behavior test)
 
 
 def logits(model, tok, text="The capital of France is"):

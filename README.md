@@ -39,6 +39,21 @@ s.reset()   # restore every touched tensor bit-exactly
 
 Also `stats()`, `discard()`, `drift()`, and `mode="add"|"scale"` for `write()`.
 
+Matrix math uses a small, safe expression language (`swm/expr.py`: parsed with `ast` and
+checked node by node, never `eval`'d):
+
+```python
+s.compute('norm(W("model.layers.4.mlp.up_proj.weight", "0:4, :"), dim=1)')   # read-only
+s.transform("model.layers.3.self_attn.q_proj.weight", "0:256, :", "x * 2")   # staged; x = region
+s.transform("model.layers.5.mlp.up_proj.weight", "0:8, :",
+            'x + 0.1 * W("model.layers.4.mlp.up_proj.weight", "0:8, :")')
+```
+
+Operators `+ - * / ** @ .T`, comparisons and `& |`, plus `abs sqrt exp log tanh sigmoid relu clip
+where sum mean std max min norm matmul outer normalize cos_sim project_out low_rank svals trace diag
+flatten reshape zeros_like ones_like randn_like eye`. Expression edits are evaluated when applied,
+in order, so they see earlier edits in the same batch.
+
 ## Web UI
 
 - Streaming conversation with tool calls shown as cards; a divider marks every weight change.
@@ -52,7 +67,9 @@ Also `stats()`, `discard()`, `drift()`, and `mode="add"|"scale"` for `write()`.
 ## Agent tools
 
 `list_weights`, `describe_weight` (per-head row/column ranges), `read_weights`,
-`weight_stats`, `write_weights`, `apply_edits`, `discard_edits`, `reset_weights`.
+`weight_stats`, `write_weights`, `compute_weights` (read-only matrix math),
+`transform_weights` (stage an edit from an expression), `apply_edits`, `discard_edits`,
+`reset_weights`.
 
 No KV cache is kept across turns: every turn re-reads the whole conversation
 with the current weights. Each turn ends at the first tool call. Logs go to `runs/*.jsonl`.
