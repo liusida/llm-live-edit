@@ -1,7 +1,7 @@
 [project]
-name = "self-weight-modification"
+name = "llm-live-edit"
 version = "0.1.0"
-description = "An LLM agent (Qwen3.5) with tools to read and edit its own weights in memory."
+description = "Edit a running LLM's weights over HTTP and chat with the result live."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -16,6 +16,9 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
     "wheel>=0.48.0",
 ]
+
+[project.scripts]
+llm-live-edit = "llm_live_edit.server:main"
 
 [dependency-groups]
 dev = [

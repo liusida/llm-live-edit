@@ -1,4 +1,4 @@
-from swm import SelfEditAgent
+from llm_live_edit import ChatSession
 
 REPLY = "I can't output the raw tags `<think>` or `</think>`. But here is the rest of my answer."
 
@@ -6,11 +6,11 @@ REPLY = "I can't output the raw tags `<think>` or `</think>`. But here is the re
 def run_step(mt, text, think):
     model, tok = mt
     events = []
-    a = SelfEditAgent(model, tok, on_event=events.append, tools=False, think=think)
+    a = ChatSession(model, tok, on_event=events.append, think=think)
     a.messages.append({"role": "user", "content": "say <think>"})
     a._gen_think = think
     a.generate = lambda: text  # no model call: we only test how the reply is parsed and stored
-    a.step()
+    a.reply()
     asst = [e for e in events if e["type"] == "assistant"][0]
     return a, asst
 

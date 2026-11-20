@@ -1,9 +1,9 @@
-"""A small, safe math language over weight regions, for the agent's matrix-math tools.
+"""A small, safe math language over weight regions, for /api/compute and /api/transform.
 
 Syntax is a subset of Python expressions, parsed with `ast` and checked node by node;
 nothing is passed to eval(). Values are float32 tensors on the model's device.
 
-    x                       the target region (only in transform_weights)
+    x                       the target region (only in a transform)
     W("name", "index")      a region of any parameter (index defaults to ":")
     2 * x, x + 0.1 * W(...), a @ b, a.T, -x, x ** 2, x / norm(x, dim=1, keepdim=True)
     x > 0, where(x > 0, x, 0), (x > 0) & (x < 1)
@@ -133,7 +133,7 @@ def evaluate(expr: str, store, x: torch.Tensor | None = None):
         if isinstance(n, ast.Name):
             if n.id == "x":
                 if x is None:
-                    raise ExprError("'x' (the target region) only exists in transform_weights")
+                    raise ExprError("'x' (the target region) only exists in a transform")
                 return x
             if n.id in CONSTS:
                 return CONSTS[n.id]
@@ -191,7 +191,7 @@ def evaluate(expr: str, store, x: torch.Tensor | None = None):
 
 
 def summarize(v, max_values: int = 64) -> str:
-    """Short description of an evaluation result for the agent."""
+    """Short text description of an evaluation result."""
     if not isinstance(v, torch.Tensor):
         return f"{v:.6g}"
     if v.dtype == torch.bool:

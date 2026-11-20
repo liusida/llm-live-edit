@@ -1,6 +1,6 @@
-"""Command-line client for a running web.py server: edit and probe the model's weights from outside.
+"""Command-line client for a running LLM Live Edit server (serve.py): edit and probe the model's weights.
 
-    export SWM_URL=http://127.0.0.1:8001          # default http://127.0.0.1:8000
+    export LLM_LIVE_EDIT_URL=http://127.0.0.1:8001  # default http://127.0.0.1:8000
 
     python edit.py state
     python edit.py params "layers\\.3\\."
@@ -11,9 +11,9 @@
     python edit.py edit model.layers.3.self_attn.q_proj.weight "0:256, :" 2 --mode scale
     python edit.py transform model.layers.5.mlp.up_proj.weight "0:8, :" 'x * 2' --note "double 8 neurons"
     python edit.py apply | discard | reset
+    python edit.py swap cat dog                   # exchange two words' token rows
     python edit.py generate "What is the capital of France?"
     python edit.py next "The capital of France is" --target " Paris" --target " Lyon"
-    python edit.py tools off          # plain chat (no self-edit prompt/tools)
     python edit.py think on
 
 Uses only the standard library, so it runs with any python3.
@@ -41,12 +41,51 @@ def call(base: str, method: str, path: str, body: dict | None = None):
             detail = ex.reason
         sys.exit(f"error {ex.code}: {detail}")
     except urllib.error.URLError as ex:
-        sys.exit(f"cannot reach {base}: {ex.reason} (is web.py running? set SWM_URL or --url)")
+        sys.exit(f"cannot reach {base}: {ex.reason} (is serve.py running? set LLM_LIVE_EDIT_URL or --url)")
+
+
+def word_forms(w1: str, w2: str) -> list[tuple[str, str]]:
+    """Spellings of a word that are usually separate tokens: with/without a leading space,
+    capitalized, plural."""
+    out = []
+    for f in (lambda w: w, str.capitalize, lambda w: w + "s", lambda w: w.capitalize() + "s"):
+        for space in (" ", ""):
+            out.append((space + f(w1), space + f(w2)))
+    return out
+
+
+def swap(u: str, w1: str, w2: str, note: str | None) -> None:
+    """Exchange the embedding rows (and lm_head rows, if untied) of every spelling of w1 and w2
+    that is a single token in both words. Staged as explicit values, then applied at once."""
+    names = ["model.embed_tokens.weight"] + [p["name"] for p in call(u, "GET", "/api/params?filter=lm_head")]
+    pairs, skipped = [], []
+    for a, b in word_forms(w1, w2):
+        t = call(u, "POST", "/api/next_token", {"prompt": "x", "top_k": 1, "targets": [a, b]})["targets"]
+        if t[0]["first_token"] == a and t[1]["first_token"] == b and t[0]["id"] != t[1]["id"]:
+            pairs.append((a, b, t[0]["id"], t[1]["id"]))
+        else:
+            skipped.append((a, b))
+    if not pairs:
+        sys.exit("no spelling of these words is a single token in both")
+    for name in names:
+        for a, b, ia, ib in pairs:
+            va = call(u, "POST", "/api/read", {"name": name, "index": str(ia)})["values"]
+            vb = call(u, "POST", "/api/read", {"name": name, "index": str(ib)})["values"]
+            call(u, "POST", "/api/edit", {"name": name, "index": str(ia), "values": vb, "apply": False})
+            call(u, "POST", "/api/edit", {"name": name, "index": str(ib), "values": va, "apply": False})
+    call(u, "POST", "/api/apply")
+    print(f"swapped in {', '.join(names)}:")
+    for a, b, ia, ib in pairs:
+        print(f"  {a!r} (id {ia})  <->  {b!r} (id {ib})")
+    if skipped:
+        print("not swapped (not a single token in both): " + ", ".join(f"{a!r}/{b!r}" for a, b in skipped))
+    if note:
+        print(f"note: {note}")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--url", default=os.environ.get("SWM_URL", "http://127.0.0.1:8000"))
+    ap.add_argument("--url", default=os.environ.get("LLM_LIVE_EDIT_URL", "http://127.0.0.1:8000"))
     ap.add_argument("--json", action="store_true", help="print raw JSON responses")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("state")
@@ -70,8 +109,9 @@ def main():
     p = sub.add_parser("next"); p.add_argument("prompt"); p.add_argument("--top", type=int, default=10)
     p.add_argument("--chat", action="store_true", help="wrap in the chat template")
     p.add_argument("--target", action="append", help="report this string's first-token probability")
-    for c in ("tools", "think"):
-        p = sub.add_parser(c); p.add_argument("onoff", choices=["on", "off"])
+    p = sub.add_parser("think"); p.add_argument("onoff", choices=["on", "off"])
+    p = sub.add_parser("swap", help="exchange two words' token rows (all single-token spellings)")
+    p.add_argument("word1"); p.add_argument("word2"); p.add_argument("--note")
     a = ap.parse_args()
     u = a.url
 
@@ -117,7 +157,10 @@ def main():
             for t in r.get("targets", []):
                 print(f"target {t['target']!r} (first token {t['first_token']!r}): p={t['prob']:.4g}, rank {t['rank']}")
             print(f"entropy {r['entropy']:.3f} nats"); return
-    elif a.cmd in ("tools", "think"):
+    elif a.cmd == "swap":
+        swap(u, a.word1, a.word2, a.note)
+        return
+    elif a.cmd == "think":
         r = call(u, "POST", f"/api/{a.cmd}", {"on": a.onoff == "on"})
     print(json.dumps(r, indent=2))
 

@@ -1,6 +1,6 @@
 import pytest
 
-from swm import load
+from llm_live_edit import load
 
 
 @pytest.fixture(scope="session")

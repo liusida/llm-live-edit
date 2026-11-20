@@ -1,9 +1,8 @@
 import pytest
 import torch
 
-from swm import WeightStore
-from swm.agent import parse_calls
-from swm.weights import parse_index, parse_values
+from llm_live_edit import WeightStore
+from llm_live_edit.weights import parse_index, parse_values
 
 Q = "model.layers.3.self_attn.q_proj.weight"
 
@@ -20,12 +19,6 @@ def test_parse_values():
     assert parse_values("0, 0, 0.1, 0.1").tolist() == pytest.approx([0, 0, 0.1, 0.1])
     assert parse_values("[1 2 3]").tolist() == [1, 2, 3]
     assert parse_values(0.5).tolist() == [0.5]
-
-
-def test_parse_calls():
-    text = ("Let me look.\n<tool_call>\n<function=read_weights>\n<parameter=name>\nx.weight\n</parameter>\n"
-            "<parameter=index>\n0, 0:4\n</parameter>\n</function>\n</tool_call>")
-    assert parse_calls(text) == [("read_weights", {"name": "x.weight", "index": "0, 0:4"})]
 
 
 def logits(model, tok, text="The capital of France is"):
@@ -135,7 +128,7 @@ def test_whole_tensor_broadcast(mt):
 
 
 def test_apply_is_all_or_nothing(mt):
-    from swm.weights import Edit
+    from llm_live_edit.weights import Edit
     model, tok = mt
     s = WeightStore(model)
     base = logits(model, tok)

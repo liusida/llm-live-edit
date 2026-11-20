@@ -1,5 +1,5 @@
 from .weights import WeightStore, describe
-from .agent import SelfEditAgent
+from .session import ChatSession
 
 
 def load(model_id: str = "Qwen/Qwen3.5-9B"):
@@ -13,4 +13,4 @@ def load(model_id: str = "Qwen/Qwen3.5-9B"):
     return model, tok
 
 
-__all__ = ["WeightStore", "SelfEditAgent", "describe", "load"]
+__all__ = ["WeightStore", "ChatSession", "describe", "load"]

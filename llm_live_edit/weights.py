@@ -20,7 +20,7 @@ import torch
 
 from .expr import ExprError, evaluate, summarize
 
-MAX_READ = 512  # largest number of values one read may return (keeps agent context small)
+MAX_READ = 512  # largest number of values one WeightStore.read() may return (the HTTP API allows more)
 
 
 def parse_index(spec: str, ndim: int) -> tuple:
@@ -176,7 +176,7 @@ class WeightStore:
     # ---- matrix math -------------------------------------------------------------
     @torch.no_grad()
     def compute(self, expression: str):
-        """Evaluate an expression read-only (see swm.expr). Returns a tensor or a number."""
+        """Evaluate an expression read-only (see llm_live_edit.expr). Returns a tensor or a number."""
         return evaluate(expression, self)
 
     @torch.no_grad()
@@ -215,7 +215,7 @@ class WeightStore:
         return e, preview
 
     @torch.no_grad()
-    def apply(self, by: str = "model") -> list[dict]:
+    def apply(self) -> list[dict]:
         """Commit all staged edits into the live tensors, in order. All-or-nothing:
         if any edit fails, the edits already done in this call are undone, nothing
         is applied, and the staged edits stay pending (fix with discard())."""
@@ -251,7 +251,7 @@ class WeightStore:
                         max_change = max(max_change, d.max().item())
                         del o, nw, d
                     del new_full
-                    reports.append({"name": e.name, "index": e.index, "mode": e.mode, "expr": e.expr, "by": by,
+                    reports.append({"name": e.name, "index": e.index, "mode": e.mode, "expr": e.expr,
                                     "n": region.numel(), "n_changed": n_changed, "max_abs_change": max_change,
                                     "stored_preview": _first_values(region, 16).float().cpu()})
                 except Exception as ex:

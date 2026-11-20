@@ -3,13 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Self-Weight Lab</title>
+<title>LLM Live Edit</title>
 <style>
 :root {
   --bg: #f7f7f5; --panel: #ffffff; --panel-2: #f0f0ec; --border: #e2e1dc;
   --text: #1d1d1b; --muted: #6b6a65; --accent: #2f6fde; --accent-soft: #e6eefc;
   --user: #2f6fde; --user-text: #ffffff;
-  --tool: #7a4fd6; --tool-soft: #f1ebfc;
   --ok: #1f8a4c; --warn: #b8610f; --warn-soft: #fdf1e3; --err: #c4352b; --err-soft: #fbe9e7;
   --edit: #d9480f; --edit-soft: #fff0e6; --restore: #1f8a4c; --restore-soft: #e7f5ec;
   --neg: #2f6fde; --pos: #d9480f; --zero: #ecebe7;
@@ -20,7 +19,6 @@
     --bg: #141413; --panel: #1d1d1b; --panel-2: #262624; --border: #33332f;
     --text: #ecebe6; --muted: #9a9890; --accent: #6b9cf0; --accent-soft: #1f2a3d;
     --user: #3a6fcf; --user-text: #ffffff;
-    --tool: #a585ec; --tool-soft: #2a2238;
     --ok: #4cc27f; --warn: #e39a4f; --warn-soft: #33281b; --err: #ef7b70; --err-soft: #3a1f1c;
     --edit: #ff8a4c; --edit-soft: #3a2518; --restore: #4cc27f; --restore-soft: #1c3226;
     --neg: #5b95f5; --pos: #ff7a3d; --zero: #2b2b28;
@@ -94,27 +92,10 @@ label.switch input:focus-visible + .track { outline: 2px solid var(--accent); ou
 .md th { background: var(--panel-2); font-weight: 600; }
 .meta { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
 .live { color: var(--text); }
-.live .calling { color: var(--tool); font-size: 12.5px; margin-top: 4px; }
-.live .calling summary { cursor: pointer; width: fit-content; }
-.live .calling pre.call-raw { color: var(--text); background: var(--panel-2); border-left: 3px solid var(--tool);
-  border-radius: 6px; padding: 6px 10px; margin: 4px 0 0; white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow: auto; }
 .caret { display: inline-block; width: 7px; height: 14px; background: var(--muted); vertical-align: -2px; animation: pulse 1s infinite; }
 details.think { margin: 2px 0 6px; font-size: 13px; color: var(--muted); }
 details.think summary { cursor: pointer; }
 details.think div { white-space: pre-wrap; border-left: 2px solid var(--border); padding-left: 10px; margin-top: 4px; }
-
-.tool { border: 1px solid var(--border); border-left: 3px solid var(--tool); border-radius: 8px; background: var(--panel);
-  margin-top: 6px; overflow: hidden; }
-.tool-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--tool-soft); flex-wrap: wrap; }
-.tool-name { font-family: var(--mono); font-weight: 600; color: var(--tool); font-size: 12.5px; }
-.args { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 7px 10px; font-size: 12.5px; }
-.args .k { color: var(--muted); font-family: var(--mono); }
-.args .v { font-family: var(--mono); word-break: break-all; }
-.args .v.link { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
-.result { border-top: 1px dashed var(--border); padding: 7px 10px; margin: 0; white-space: pre-wrap; word-break: break-word;
-  max-height: 260px; overflow: auto; }
-.result.err { background: var(--err-soft); color: var(--err); }
-.result.pending { color: var(--muted); font-style: italic; font-family: inherit; }
 
 .divider { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; margin: 6px 0; }
 .divider::before, .divider::after { content: ""; flex: 1; height: 2px; }
@@ -125,18 +106,14 @@ details.instr { border: 1px solid var(--border); border-radius: 8px; background:
 details.instr > summary { cursor: pointer; padding: 7px 12px; color: var(--muted); }
 details.instr > summary .ttl { color: var(--text); font-weight: 600; }
 details.instr[open] > summary { border-bottom: 1px solid var(--border); }
-details.part { padding: 6px 12px; border-bottom: 1px dashed var(--border); }
-details.part:last-child { border-bottom: 0; }
-details.part > summary { cursor: pointer; font-weight: 500; }
-details.part .meta, details.instr .meta { font-weight: 400; color: var(--muted); font-size: 12px; margin: 0; }
+details.instr .meta { font-weight: 400; color: var(--muted); font-size: 12px; margin: 0; }
 pre.instr-text { white-space: pre-wrap; word-break: break-word; background: var(--panel-2); border-radius: 6px;
   padding: 8px 10px; margin: 6px 0 4px; max-height: 420px; overflow: auto; }
-.env-note { align-self: center; max-width: 85%; font-size: 12.5px; color: var(--muted); border: 1px dashed var(--border);
+.api-note { align-self: center; max-width: 85%; font-size: 12.5px; color: var(--muted); border: 1px solid var(--edit);
   border-radius: 8px; padding: 5px 11px; display: flex; gap: 8px; align-items: baseline; }
-.api-note { border-style: solid; border-color: var(--edit); }
-.api-note .lbl { color: var(--edit) !important; }
+.api-note .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--edit); white-space: nowrap; }
 .api-note .mono { font-family: var(--mono); font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
-.env-note .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--tool); white-space: nowrap; }
+.intro code { background: var(--panel-2); border-radius: 4px; padding: .05em .35em; }
 .notice { align-self: center; font-size: 12px; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 2px 10px; }
 .error { align-self: center; font-size: 12.5px; color: var(--err); background: var(--err-soft); border-radius: 8px; padding: 4px 12px; }
 
@@ -183,15 +160,12 @@ canvas#heat { width: 100%; image-rendering: pixelated; border-radius: 4px; borde
 <body>
 <div class="app">
   <header>
-    <h1>Self-Weight Lab</h1>
+    <h1>LLM Live Edit</h1>
     <span class="badge" id="modelBadge">connecting…</span>
     <span class="status"><span class="dot off" id="dot"></span><span id="statusText">offline</span></span>
     <span class="spacer"></span>
-    <label class="switch" title="Self-edit mode: the model gets the self-edit system prompt and tools to read/edit its own weights. Off = plain chat; edit the weights through the API instead.">
-      <input type="checkbox" id="toolsToggle"><span class="track"></span>Self-edit tools</label>
     <label class="switch" title="Qwen thinking mode: the model reasons before it answers. Applies from its next reply.">
       <input type="checkbox" id="thinkToggle"><span class="track"></span>Thinking</label>
-    <label class="chk" title="max tool-call turns per message">steps <input id="maxSteps" type="number" min="1" max="100" value="20" style="width:62px"></label>
     <button id="stopBtn" class="danger" disabled title="Stop generating (Esc)">Stop</button>
     <button id="clearBtn" title="Clear the conversation. Weights are not touched.">New chat</button>
   </header>
@@ -199,7 +173,7 @@ canvas#heat { width: 100%; image-rendering: pixelated; border-radius: 4px; borde
     <div class="chat">
       <div id="timeline"></div>
       <form class="composer" id="composer">
-        <textarea id="input" rows="1" placeholder="Ask the model to inspect or edit its own weights… (Shift+Enter: new line)"></textarea>
+        <textarea id="input" rows="1" placeholder="Message the model… (Shift+Enter: new line)"></textarea>
         <button class="primary" id="sendBtn" type="submit">Send</button>
       </form>
     </div>
@@ -237,12 +211,7 @@ canvas#heat { width: 100%; image-rendering: pixelated; border-radius: 4px; borde
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const tl = $("timeline");
-let ws, busy = false, live = null, lastCalls = [], lastAsst = null, genEnd = null, showCallRaw = false, modelInfo = null;
-function setTools(on) {
-  $("toolsToggle").checked = !!on;
-  $("input").placeholder = on ? "Ask the model to inspect or edit its own weights… (Shift+Enter: new line)"
-                              : "Message the model… (weights are edited from outside; Shift+Enter: new line)";
-}
+let ws, busy = false, live = null, genEnd = null, modelInfo = null;
 function setThink(on) {
   $("thinkToggle").checked = !!on;
   if (modelInfo) {
@@ -345,25 +314,11 @@ function renderLive() {
       d.appendChild(el("summary", null, "Thinking")); d.appendChild(el("div", null, r.trim())); }
     t = t.slice(end + "</think>".length);
   }
-  const j = t.indexOf("<tool_call>");
   const body = live.body.appendChild(el("div", "md"));
-  body.innerHTML = md((j >= 0 ? t.slice(0, j) : t).replace(/^\s+/, ""));
-  if (j >= 0) {
-    // Expandable view of the tool call as it is being written. The live view is rebuilt on every
-    // token, so the open/closed choice is kept in showCallRaw (and sticks for later calls too).
-    const raw = t.slice(j), fn = (raw.match(/<function=([\w.-]+)>/) || [])[1];
-    const d = live.body.appendChild(el("details", "calling"));
-    d.open = showCallRaw;
-    const sm = d.appendChild(el("summary", null, `⋯ preparing tool call${fn ? ": " + fn : ""}`));
-    sm.onclick = (e) => { e.preventDefault(); showCallRaw = !showCallRaw; renderLive(); };
-    const pre = d.appendChild(el("pre", "call-raw", raw));
-    if (showCallRaw) pre.scrollTop = pre.scrollHeight;
-  }
-  else {
-    let at = body;  // put the cursor at the end of the deepest last block (list item, paragraph, code)
-    while (at.lastElementChild && /^(OL|UL|LI|P|PRE|BLOCKQUOTE|H\d)$/.test(at.lastElementChild.tagName)) at = at.lastElementChild;
-    at.appendChild(el("span", "caret"));
-  }
+  body.innerHTML = md(t.replace(/^\s+/, ""));
+  let at = body;  // put the cursor at the end of the deepest last block (list item, paragraph, code)
+  while (at.lastElementChild && /^(OL|UL|LI|P|PRE|BLOCKQUOTE|H\d)$/.test(at.lastElementChild.tagName)) at = at.lastElementChild;
+  at.appendChild(el("span", "caret"));
   if (stick) tl.scrollTop = tl.scrollHeight;
 }
 
@@ -373,57 +328,29 @@ function renderAssistant(ev, node) {
   if (ev.reasoning) { const d = node.appendChild(el("details", "think"));
     d.appendChild(el("summary", null, "Thinking")); d.appendChild(el("div", null, ev.reasoning)); }
   node.appendChild(el("div", "text md")).innerHTML = md(ev.content || "");
-  lastCalls = [];
-  for (const c of ev.calls || []) {
-    const card = node.appendChild(el("div", "tool"));
-    const head = card.appendChild(el("div", "tool-head"));
-    head.appendChild(el("span", "tool-name", c.fn));
-    const keys = Object.keys(c.args || {});
-    if (keys.length) {
-      const g = card.appendChild(el("div", "args"));
-      for (const k of keys) {
-        g.appendChild(el("span", "k", k));
-        const v = g.appendChild(el("span", "v", c.args[k]));
-        if (k === "name") { v.classList.add("link"); v.title = "open in inspector";
-          v.onclick = () => openInspector(c.args.name, c.args.index); }
-      }
-    }
-    card.result = card.appendChild(el("pre", "result pending", "running…"));
-    lastCalls.push(card);
-  }
   if (ev.interrupted) node.appendChild(el("div", "meta")).appendChild(el("span", "tag", "interrupted"));
   if (genEnd) {
     const g = genEnd; genEnd = null;
     node.appendChild(el("div", "meta", `re-read ${g.prompt_tokens} tokens in ${(g.prefill_seconds ?? 0).toFixed(1)} s · ` +
       `wrote ${g.new_tokens} at ${g.tok_per_s.toFixed(1)} tok/s · ${g.seconds.toFixed(1)} s total`));
   }
-  lastAsst = node;
   return node;
-}
-
-function renderToolResult(ev) {
-  const card = lastCalls.shift();
-  const pre = card ? card.result : add(el("pre", "result"));
-  pre.className = "result" + (ev.result.startsWith("error") ? " err" : "");
-  pre.textContent = ev.result;
-  if (ev.weights_changed) divider(ev.fn === "reset_weights" ? "restore" : "edit");
 }
 
 function divider(kind, who) {
   const d = el("div", "divider " + kind);
   d.appendChild(el("span", null, kind === "edit"
     ? `⚡ Weights modified${who ? " " + who : ""} — everything below comes from the edited model`
-    : `↺ Weights restored to original${who ? " (by you)" : ""}`));
+    : `↺ Weights restored to original — everything below comes from the original model`));
   add(d);
 }
 
 function handle(ev, replay) {
   switch (ev.type) {
     case "hello":
-      modelInfo = ev; setThink(ev.think); setTools(ev.tools);
-      instr = ev.instructions;
+      modelInfo = ev; setThink(ev.think);
       tl.textContent = "";
-      tl.appendChild(instructionsBlock());
+      tl.appendChild(contextBlock());
       if (!ev.history.length) tl.appendChild(intro());
       for (const h of ev.history) handle(h, true);
       renderState(ev.state); setBusy(ev.busy);
@@ -436,80 +363,53 @@ function handle(ev, replay) {
       n.appendChild(el("span", "mono", ev.text));
       if (ev.note) n.appendChild(el("span", null, "— " + ev.note));
       if (ev.weights_changed) divider("edit", "via API");
+      if (ev.weights_restored) divider("restore");
       break;
     }
-    case "tools":
-      setTools(ev.on);
-      if (ev.instructions) { instr = ev.instructions; tl.querySelector("details.instr")?.replaceWith(instructionsBlock()); }
-      add(el("div", "notice", ev.on ? "self-edit tools on: system prompt, weight tools and [environment] notes"
-                                    : "plain chat: no system prompt, no tools — weight edits come only from outside"));
-      break;
     case "think":
       setThink(ev.on);
       add(el("div", "notice", `thinking mode ${ev.on ? "on" : "off"}${busy && !replay ? " (from the next reply)" : ""}`));
       break;
-    case "env_note": {
-      tl.querySelector(".intro")?.remove();
-      const n = add(el("div", "env-note"));
-      n.appendChild(el("span", "lbl", "told the model"));
-      n.appendChild(el("span", null, ev.text));
-      break;
-    }
     case "gen_start": if (!replay) startLive(ev.think); break;
     case "token": if (!live) startLive(); live.text += ev.text; renderLive(); break;
     case "assistant": { const n = live ? live.node : null; live = null; renderAssistant(ev, n); break; }
     case "gen_end": genEnd = ev; break;  // arrives just before its "assistant" event
-    case "tool_result": renderToolResult(ev); break;
     case "state": renderState(ev); break;
-    case "notice":
-      if (ev.weights_changed) divider("restore", true); else add(el("div", "notice", ev.text));
-      break;
+    case "notice": add(el("div", "notice", ev.text)); break;
     case "error": add(el("div", "error", ev.text)); if (live) { live.node.remove(); live = null; } break;
     case "busy":
       setBusy(ev.busy);
       if (!ev.busy && live) { live.node.remove(); live = null; }
       if (!ev.busy && queued && !replay) { const t = queued; queued = null; sendChat(t); }
       break;
-    case "cleared": tl.textContent = ""; tl.appendChild(instructionsBlock()); tl.appendChild(intro()); break;
+    case "cleared": tl.textContent = ""; tl.appendChild(contextBlock()); tl.appendChild(intro()); break;
   }
 }
 
-// Collapsed block at the top of the conversation: everything the model is told besides your messages.
-let instr = null;
-function instructionsBlock() {
+// Collapsed block at the top of the conversation: the exact text the model reads next.
+function contextBlock() {
   const box = el("details", "instr");
   const sum = box.appendChild(el("summary"));
-  sum.appendChild(el("span", "ttl", "Instructions the model sees"));
-  if (!instr) return box;
-  sum.appendChild(el("span", "meta", instr.mode === "plain" ? " · plain chat: none"
-                                     : ` · system prompt, ${instr.tools.length} tools, tool-call format`));
-
-  const part = (title, note, text) => {
-    const d = box.appendChild(el("details", "part"));
-    const s2 = d.appendChild(el("summary", null, title));
-    if (note) s2.appendChild(el("span", "meta", " · " + note));
-    const pre = d.appendChild(el("pre", "instr-text"));
-    if (text != null) pre.textContent = text;
-    return [d, pre];
-  };
-  part("System prompt", "written by this app", instr.system_prompt);
-  part("Exact system block", "as the chat template renders it: system prompt + tool definitions + call format",
-       instr.preamble);
-  const [ctx, pre] = part("Full context for the next turn", "everything the model re-reads, loaded when opened", "");
-  const load = async () => {
+  sum.appendChild(el("span", "ttl", "What the model reads"));
+  const meta = sum.appendChild(el("span", "meta", modelInfo && modelInfo.system ? " · system prompt + conversation"
+                                                                               : " · no system prompt, just the conversation"));
+  const pre = box.appendChild(el("pre", "instr-text"));
+  pre.style.margin = "8px 12px";
+  box.addEventListener("toggle", async () => {
+    if (!box.open) return;
     pre.textContent = "loading…";
-    const r = await fetch("/api/context"); const j = await r.json();
+    const j = await (await fetch("/api/context")).json();
     pre.textContent = j.text;
-    ctx.querySelector("summary .meta").textContent = ` · ${j.tokens.toLocaleString()} tokens, ${j.messages} messages (refreshes each time you open it)`;
-  };
-  ctx.addEventListener("toggle", () => ctx.open && load());
+    meta.textContent = ` · ${j.tokens.toLocaleString()} tokens, ${j.messages} messages (refreshes each time you open it)`;
+  });
   return box;
 }
 
 function intro() {
   const d = el("div", "empty intro");
-  d.innerHTML = `The model can list, read, stage, apply and reset edits to its own weights, and do matrix math on them.
-  Try: <i>“Read row 0, columns 0:8 of your layer 3 query projection, then set them to 0, 0, 0.1, 0.1, 0, 0, 0.1, 0.1 and apply.”</i>`;
+  d.innerHTML = `Chat with the model here; change its weights from outside with the HTTP API (or <code>edit.py</code>).
+  Every edit shows up in this conversation, and the next reply comes from the edited model. Try:<br>
+  <code>python edit.py transform model.embed_tokens.weight 11751 'x * -1' --note "flip ' Paris'"</code>`;
   return d;
 }
 
@@ -540,7 +440,7 @@ function stopGen() {
   ws.send(JSON.stringify({ type: "stop" }));
   stopping = true; updateSendBtn();
 }
-function sendChat(t) { ws.send(JSON.stringify({ type: "chat", text: t, max_steps: +$("maxSteps").value || 20 })); }
+function sendChat(t) { ws.send(JSON.stringify({ type: "chat", text: t })); }
 
 // ---------- weight state ----------
 function renderState(s) {
@@ -558,7 +458,7 @@ function renderState(s) {
   for (const e of s.applied) {
     const r = A.appendChild(el("div", "edit-row applied-row"));
     const nm = r.appendChild(el("div", "nm", `${e.name}[${e.index}]`)); nm.onclick = () => openInspector(e.name, e.index, true);
-    r.appendChild(el("div", "sub", `${e.by === "api" ? "via API · " : ""}${e.expr ? "= " + e.expr : e.mode} · ${e.n_changed.toLocaleString()}/${e.n.toLocaleString()} changed · max |Δ| ${e.max_abs_change.toPrecision(3)}`));
+    r.appendChild(el("div", "sub", `${e.expr ? "= " + e.expr : e.mode} · ${e.n_changed.toLocaleString()}/${e.n.toLocaleString()} changed · max |Δ| ${e.max_abs_change.toPrecision(3)}`));
   }
   const D = $("drift"); D.textContent = "";
   const entries = Object.entries(s.drift || {});
@@ -681,11 +581,6 @@ $("resetBtn").onclick = () => confirm("Restore all weights to their original val
 $("discardBtn").onclick = () => post("/api/discard");
 $("clearBtn").onclick = () => confirm("Clear the conversation? Weights stay as they are.") && post("/api/clear");
 $("inspBtn").onclick = inspect;
-$("toolsToggle").onchange = async (e) => {
-  const on = e.target.checked;
-  const r = await fetch("/api/tools", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on }) });
-  if (!r.ok) { e.target.checked = !on; add(el("div", "error", "could not switch self-edit tools")); }
-};
 $("thinkToggle").onchange = async (e) => {
   const on = e.target.checked;
   const r = await fetch("/api/think", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on }) });

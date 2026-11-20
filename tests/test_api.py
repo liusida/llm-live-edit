@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from swm.web import create_app
+from llm_live_edit.server import create_app
 
 E = "model.embed_tokens.weight"
 Q = "model.layers.3.self_attn.q_proj.weight"
@@ -10,7 +10,7 @@ Q = "model.layers.3.self_attn.q_proj.weight"
 @pytest.fixture(scope="module")
 def client(mt):
     model, tok = mt
-    with TestClient(create_app(model, tok, "Qwen/Qwen3.5-2B", debug=False, tools=False)) as c:
+    with TestClient(create_app(model, tok, "Qwen/Qwen3.5-2B", debug=False)) as c:
         yield c
         c.post("/api/reset")
 
@@ -28,7 +28,7 @@ def test_edit_changes_probabilities_and_reset_restores(client):
     after = paris(client)
     assert after["prob"] < before["prob"] * 1e-6
     state = client.get("/api/state").json()["state"]
-    assert state["applied"][0]["by"] == "api" and state["applied"][0]["expr"] == "x * -1"
+    assert state["applied"][0]["expr"] == "x * -1"
     client.post("/api/reset")
     assert paris(client)["prob"] == pytest.approx(before["prob"], rel=1e-6)
 
@@ -57,7 +57,11 @@ def test_compute_and_generate(client):
     assert g["new_tokens"] > 0 and isinstance(g["text"], str)
 
 
-def test_tools_switch(client):
-    assert client.post("/api/tools", json={"on": True}).json()["tools"] is True
-    assert client.get("/api/state").json()["tools"] is True
-    client.post("/api/tools", json={"on": False})
+def test_apply_with_nothing_staged_is_400(client):
+    assert client.post("/api/apply").status_code == 400
+
+
+def test_think_switch(client):
+    assert client.post("/api/think", json={"on": True}).json()["think"] is True
+    assert client.get("/api/state").json()["think"] is True
+    client.post("/api/think", json={"on": False})

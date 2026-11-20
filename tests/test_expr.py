@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from swm import SelfEditAgent, WeightStore
-from swm.expr import ExprError
+from llm_live_edit import WeightStore
+from llm_live_edit.expr import ExprError
 
 Q = "model.layers.3.self_attn.q_proj.weight"
 UP4 = "model.layers.4.mlp.up_proj.weight"
@@ -76,18 +76,3 @@ def test_failure_at_apply_rolls_back(s, mt):
         s.apply()
     assert torch.equal(model.model.layers[3].self_attn.q_proj.weight, before)
     s.discard()
-
-
-def test_agent_tools(mt):
-    model, tok = mt
-    a = SelfEditAgent(model, tok, on_event=lambda ev: None)
-    out = a.run_tool("compute_weights", {"expression": f'mean(W("{Q}", "0:8, :"))'})
-    assert out.startswith("result: ")
-    out = a.run_tool("transform_weights", {"name": Q, "index": "0, 0:4", "expression": "x * 2"})
-    assert out.startswith("staged:") and "Preview" in out
-    assert a.state()["pending"][0]["values"] == "= x * 2"
-    out = a.run_tool("apply_edits", {})
-    assert "x * 2: 4/4 values changed" in out or "x * 2:" in out
-    out = a.run_tool("transform_weights", {"name": Q, "index": "0, 0:4", "expression": "import os"})
-    assert out.startswith("error:")
-    a.store.reset()
